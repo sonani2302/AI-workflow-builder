@@ -36,3 +36,6 @@ pnpm-debug.log*
 next-env.d.ts
 
 browser-automation-prompt-playbook.html
+
+# clerk configuration (can include secrets)
+/.clerk/
