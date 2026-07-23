@@ -30,7 +30,9 @@ export default function RootLayout({
       )}
     >
       <body>
-        <ClerkProvider>
+        <ClerkProvider
+          taskUrls={{ "choose-organization": "/choose-organization" }}
+        >
           <ThemeProvider>
             {children}
             <Toaster />
