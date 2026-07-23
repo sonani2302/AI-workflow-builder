@@ -1,6 +1,7 @@
 # Next.js template
 
 This is a Next.js template with shadcn/ui.
+Check latest methode and not training data.
 
 ## Adding components
 
