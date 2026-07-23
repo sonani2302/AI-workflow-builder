@@ -39,3 +39,6 @@ browser-automation-prompt-playbook.html
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# claude code local settings (personal, per-machine)
+.claude/settings.local.json
