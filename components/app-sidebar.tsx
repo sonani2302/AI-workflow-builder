@@ -1,0 +1,32 @@
+import * as React from "react"
+import { OrganizationSwitcher, UserButton } from "@clerk/nextjs"
+
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
+import { WorkflowNav } from "@/features/workflows/components/workflow-nav"
+
+export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  return (
+    <Sidebar collapsible="icon" {...props}>
+      <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
+        <div className="flex min-w-0 flex-1 items-center group-data-[collapsible=icon]:hidden">
+          <OrganizationSwitcher hidePersonal afterSelectOrganizationUrl="/" />
+        </div>
+        <SidebarTrigger className="shrink-0" />
+      </SidebarHeader>
+
+      <SidebarContent>
+        <WorkflowNav />
+      </SidebarContent>
+
+      <SidebarFooter className="flex-row items-center group-data-[collapsible=icon]:justify-center">
+        <UserButton />
+      </SidebarFooter>
+    </Sidebar>
+  )
+}

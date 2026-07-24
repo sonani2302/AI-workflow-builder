@@ -12,7 +12,7 @@ import {
 
 export default function Page() {
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center p-6">
+    <div className="flex flex-1 flex-col items-center justify-center p-6">
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
