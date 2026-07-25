@@ -1,5 +1,6 @@
 "use client"
 
+import { useTransition } from "react"
 import { Plus, Workflow as WorkflowIcon } from "lucide-react"
 
 import type { Workflow } from "@/lib/db/schema"
@@ -19,9 +20,25 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { generateSlug } from "@/features/workflows/lib/generate-slug"
 
-export function WorkflowNav({ workflows }: { workflows: Workflow[] }) {
+export function WorkflowNav({
+  workflows,
+  createWorkflowAction,
+}: {
+  workflows: Workflow[]
+  createWorkflowAction: (name: string) => Promise<void>
+}) {
   const { state, isMobile } = useSidebar()
+  const [isPending, startTransition] = useTransition()
+
+  // The action redirects on success, so the pending flag also guards against
+  // a double click creating two workflows.
+  const handleCreate = () => {
+    startTransition(async () => {
+      await createWorkflowAction(generateSlug())
+    })
+  }
 
   const workflowList = (
     <SidebarMenu>
@@ -48,7 +65,7 @@ export function WorkflowNav({ workflows }: { workflows: Workflow[] }) {
                   <span className="sr-only">Workflows</span>
                 </SidebarMenuButton>
                 <PopoverContent side="right" align="start">
-                  <Button>
+                  <Button onClick={handleCreate} disabled={isPending}>
                     <Plus />
                     New workflow
                   </Button>
@@ -65,7 +82,11 @@ export function WorkflowNav({ workflows }: { workflows: Workflow[] }) {
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Workflows</SidebarGroupLabel>
-      <SidebarGroupAction aria-label="New workflow">
+      <SidebarGroupAction
+        aria-label="New workflow"
+        onClick={handleCreate}
+        disabled={isPending}
+      >
         <Plus />
       </SidebarGroupAction>
       <SidebarGroupContent>{workflowList}</SidebarGroupContent>

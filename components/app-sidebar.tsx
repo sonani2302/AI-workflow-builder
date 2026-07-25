@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sidebar"
 import { WorkflowNav } from "@/features/workflows/components/workflow-nav"
 import { listWorkflows } from "@/features/workflows/data"
+import { createWorkflowAction } from "@/features/workflows/lib/action"
 
 export async function AppSidebar({
   ...props
@@ -28,7 +29,10 @@ export async function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        <WorkflowNav workflows={workflows} />
+        <WorkflowNav
+          workflows={workflows}
+          createWorkflowAction={createWorkflowAction}
+        />
       </SidebarContent>
 
       <SidebarFooter className="flex-row items-center group-data-[collapsible=icon]:justify-center">
