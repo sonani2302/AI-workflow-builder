@@ -12,3 +12,13 @@ export function listWorkflows(orgId: string) {
     .where(eq(workflows.orgId, orgId))
     .orderBy(desc(workflows.createdAt))
 }
+
+/** Create an empty workflow for one Clerk organization. */
+export async function createWorkflow(orgId: string, name: string) {
+  const [workflow] = await db
+    .insert(workflows)
+    .values({ orgId, name })
+    .returning()
+
+  return workflow
+}
