@@ -1,6 +1,8 @@
 "use client"
 
 import { useTransition } from "react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { Plus, Workflow as WorkflowIcon } from "lucide-react"
 
 import type { Workflow } from "@/lib/db/schema"
@@ -31,6 +33,7 @@ export function WorkflowNav({
 }) {
   const { state, isMobile } = useSidebar()
   const [isPending, startTransition] = useTransition()
+  const pathname = usePathname()
 
   // The action redirects on success, so the pending flag also guards against
   // a double click creating two workflows.
@@ -40,15 +43,23 @@ export function WorkflowNav({
     })
   }
 
+  // Shared by the expanded list and the collapsed popover.
   const workflowList = (
     <SidebarMenu>
-      {workflows.map((workflow) => (
-        <SidebarMenuItem key={workflow.id}>
-          <SidebarMenuButton>
-            <span>{workflow.name}</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ))}
+      {workflows.map((workflow) => {
+        const href = `/workflows/${workflow.id}`
+
+        return (
+          <SidebarMenuItem key={workflow.id}>
+            <SidebarMenuButton
+              isActive={pathname === href}
+              render={<Link href={href} />}
+            >
+              <span>{workflow.name}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )
+      })}
     </SidebarMenu>
   )
 
