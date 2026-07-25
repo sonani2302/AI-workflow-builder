@@ -1,8 +1,8 @@
 "use client"
 
-import * as React from "react"
-import { Plus, Workflow } from "lucide-react"
+import { Plus, Workflow as WorkflowIcon } from "lucide-react"
 
+import type { Workflow } from "@/lib/db/schema"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
@@ -20,32 +20,15 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 
-// Placeholder data until workflows are wired up to the backend.
-const workflows = [
-  "dominant-wasp",
-  "honest-reindeer",
-  "expected-llama",
-  "essential-ocelot",
-  "creepy-echidna",
-  "eastern-silkworm",
-  "cultural-lion",
-  "proud-weasel",
-  "regional-bonobo",
-]
-
-export function WorkflowNav() {
+export function WorkflowNav({ workflows }: { workflows: Workflow[] }) {
   const { state, isMobile } = useSidebar()
-  const [activeWorkflow, setActiveWorkflow] = React.useState(workflows[0])
 
   const workflowList = (
     <SidebarMenu>
       {workflows.map((workflow) => (
-        <SidebarMenuItem key={workflow}>
-          <SidebarMenuButton
-            isActive={workflow === activeWorkflow}
-            onClick={() => setActiveWorkflow(workflow)}
-          >
-            <span>{workflow}</span>
+        <SidebarMenuItem key={workflow.id}>
+          <SidebarMenuButton>
+            <span>{workflow.name}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       ))}
@@ -61,7 +44,7 @@ export function WorkflowNav() {
             <SidebarMenuItem>
               <Popover>
                 <SidebarMenuButton render={<PopoverTrigger />}>
-                  <Workflow />
+                  <WorkflowIcon />
                   <span className="sr-only">Workflows</span>
                 </SidebarMenuButton>
                 <PopoverContent side="right" align="start">
