@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
-import { useLiveblocksFlow } from "@liveblocks/react-flow"
+import { Cursors, useLiveblocksFlow } from "@liveblocks/react-flow"
 import {
   Background,
   Controls,
@@ -151,6 +151,9 @@ export function Canvas({ workflowId }: { workflowId: string }) {
         >
           {workflowId}
         </Panel>
+
+        {/* Last child so other users' cursors draw above the canvas chrome. */}
+        <Cursors />
       </ReactFlow>
     </div>
   )
