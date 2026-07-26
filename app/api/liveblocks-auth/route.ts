@@ -1,24 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server"
-import { Liveblocks } from "@liveblocks/node"
 
+import { getLiveblocks } from "@/lib/liveblocks"
 import { getWorkflow } from "@/features/workflows/data"
-
-let client: Liveblocks | undefined
-
-// Built on first use rather than at module scope: the constructor throws when
-// the secret is missing, which would take the whole route down before it could
-// even turn an unauthenticated caller away.
-function getLiveblocks() {
-  if (!client) {
-    if (!process.env.LIVEBLOCKS_SECRET_KEY) {
-      throw new Error("LIVEBLOCKS_SECRET_KEY is not set")
-    }
-
-    client = new Liveblocks({ secret: process.env.LIVEBLOCKS_SECRET_KEY })
-  }
-
-  return client
-}
 
 // A room id is a workflow id, and that column is a uuid, so a malformed value
 // would make Postgres throw instead of simply missing.
