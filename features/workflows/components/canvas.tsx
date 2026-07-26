@@ -1,17 +1,14 @@
 "use client"
 
-import { useCallback, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
+import { useLiveblocksFlow } from "@liveblocks/react-flow"
 import {
-  addEdge,
   Background,
   Controls,
   MarkerType,
   Panel,
   ReactFlow,
-  useEdgesState,
-  useNodesState,
-  type Connection,
   type DefaultEdgeOptions,
   type Edge,
   type NodeTypes,
@@ -105,18 +102,21 @@ const hydratedOnServer = () => false
  * Canvas column of the workflow editor, filling the space above the logs.
  */
 export function Canvas({ workflowId }: { workflowId: string }) {
-  const [nodes, , onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  // Liveblocks owns the nodes and edges now, so they sync across everyone in
+  // the room. The initial graph only seeds an empty room. suspense: true
+  // matches the ClientSideSuspense that Room renders above this.
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, onDelete } =
+    useLiveblocksFlow<StepNodeType, Edge>({
+      suspense: true,
+      nodes: { initial: initialNodes },
+      edges: { initial: initialEdges },
+    })
+
   const { resolvedTheme } = useTheme()
   const hydrated = useSyncExternalStore(
     subscribeToNothing,
     hydratedOnClient,
     hydratedOnServer
-  )
-
-  const onConnect = useCallback(
-    (connection: Connection) => setEdges((edges) => addEdge(connection, edges)),
-    [setEdges]
   )
 
   // React Flow bakes this class into its wrapper on the first render, and
@@ -136,6 +136,7 @@ export function Canvas({ workflowId }: { workflowId: string }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onDelete={onDelete}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         colorMode={colorMode}

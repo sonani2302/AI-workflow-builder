@@ -4,6 +4,12 @@
 @import "@clerk/ui/themes/shadcn.css";
 /* Must come after tailwindcss so React Flow's own styles win where they overlap. */
 @import "@xyflow/react/dist/style.css";
+/* Liveblocks: the attributes variant keys off class="dark", which is what
+   next-themes sets. The media-query variant would follow the OS instead and
+   drift from the app's theme toggle. */
+@import "@liveblocks/react-ui/styles.css";
+@import "@liveblocks/react-ui/styles/dark/attributes.css";
+@import "@liveblocks/react-flow/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
