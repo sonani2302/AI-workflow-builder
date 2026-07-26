@@ -44,3 +44,6 @@ browser-automation-prompt-playbook.html
 .claude/settings.local.json
 
 .trigger
+
+# skills CLI staging dir; .claude/skills holds the committed copies
+.agents/
