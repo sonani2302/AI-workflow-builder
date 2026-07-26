@@ -1,3 +1,6 @@
+import { redirect } from "next/navigation"
+import { auth } from "@clerk/nextjs/server"
+
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   SidebarInset,
@@ -6,11 +9,25 @@ import {
 } from "@/components/ui/sidebar"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Everything below reads organization-scoped data, starting with the
+  // sidebar's workflow list, so gate the whole group here. Redirects to the
+  // sign-in URL when there is no session.
+  await auth.protect()
+
+  // Workflows belong to an organization, so a member without an active one has
+  // nothing to read or create. /choose-organization sits outside this layout,
+  // so this cannot loop.
+  const { orgId } = await auth()
+
+  if (!orgId) {
+    redirect("/choose-organization")
+  }
+
   return (
     <TooltipProvider>
       <SidebarProvider>
