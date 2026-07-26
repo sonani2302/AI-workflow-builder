@@ -16,7 +16,9 @@ export function Room({
 }) {
   return (
     <LiveblocksProvider
-      publicApiKey={process.env.NEXT_PUBLIC_LIVEBLOCKS_PUBLIC_KEY!}
+      // Not a public key: the endpoint checks that the caller's organization
+      // owns this workflow before granting the room.
+      authEndpoint="/api/liveblocks-auth"
       // 16ms is the minimum, so presence and storage run at 60FPS instead of
       // the default 10.
       throttle={16}
