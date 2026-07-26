@@ -42,3 +42,5 @@ browser-automation-prompt-playbook.html
 
 # claude code local settings (personal, per-machine)
 .claude/settings.local.json
+
+.trigger
