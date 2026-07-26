@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
 import { Cursors, useLiveblocksFlow } from "@liveblocks/react-flow"
+import { AvatarStack } from "@liveblocks/react-ui"
 import {
   Background,
   Controls,
@@ -150,6 +151,12 @@ export function Canvas({ workflowId }: { workflowId: string }) {
           className="font-mono text-xs text-muted-foreground"
         >
           {workflowId}
+        </Panel>
+
+        {/* Who else is in the room. Names and avatars come from resolveUsers,
+            so this stays anonymous without it. */}
+        <Panel position="top-right">
+          <AvatarStack />
         </Panel>
 
         {/* Last child so other users' cursors draw above the canvas chrome. */}
