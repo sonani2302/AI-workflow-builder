@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useSyncExternalStore } from "react"
 import { useTheme } from "next-themes"
 import {
   addEdge,
@@ -54,6 +54,13 @@ const canvasTheme = [
   "[--xy-controls-button-border-color:var(--border)]",
 ].join(" ")
 
+// Reports false while rendering on the server and during the first client
+// render, then true once React has hydrated. Kept as module constants so the
+// store identity stays stable across renders.
+const subscribeToNothing = () => () => {}
+const hydratedOnClient = () => true
+const hydratedOnServer = () => false
+
 /**
  * Canvas column of the workflow editor, filling the space above the logs.
  */
@@ -61,11 +68,22 @@ export function Canvas({ workflowId }: { workflowId: string }) {
   const [nodes, , onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const { resolvedTheme } = useTheme()
+  const hydrated = useSyncExternalStore(
+    subscribeToNothing,
+    hydratedOnClient,
+    hydratedOnServer
+  )
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((edges) => addEdge(connection, edges)),
     [setEdges]
   )
+
+  // React Flow bakes this class into its wrapper on the first render, and
+  // next-themes cannot know the theme until after hydration. Holding at "light"
+  // until hydrated keeps the server and first client render identical, then the
+  // store above re-renders with the real theme.
+  const colorMode = hydrated && resolvedTheme === "dark" ? "dark" : "light"
 
   // React Flow needs a parent with a real width and height; the surrounding
   // ResizablePanel supplies both, so size-full is enough here.
@@ -79,7 +97,7 @@ export function Canvas({ workflowId }: { workflowId: string }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         defaultEdgeOptions={defaultEdgeOptions}
-        colorMode={resolvedTheme === "dark" ? "dark" : "light"}
+        colorMode={colorMode}
         maxZoom={1}
         fitView
       >
