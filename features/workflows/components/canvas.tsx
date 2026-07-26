@@ -14,13 +14,53 @@ import {
   type Connection,
   type DefaultEdgeOptions,
   type Edge,
-  type Node,
+  type NodeTypes,
+  type XYPosition,
 } from "@xyflow/react"
 
-// Placeholder graph until workflows carry their own nodes and edges.
-const initialNodes: Node[] = [
-  { id: "n1", position: { x: 0, y: 0 }, data: { label: "Node 1" } },
-  { id: "n2", position: { x: 0, y: 160 }, data: { label: "Node 2" } },
+import { StepNode } from "@/features/workflows/components/step-node"
+import {
+  nodeRegistry,
+  type NodeType,
+  type StepNodeType,
+} from "@/features/workflows/nodes/node-registry"
+
+// Every node is rendered by StepNode; which entry it draws comes from
+// data.type. Must stay a module constant, or React Flow remounts all nodes on
+// each render.
+const nodeTypes: NodeTypes = { step: StepNode }
+
+/**
+ * Builds a node from its registry entry, so kind, title and the shape of
+ * values follow the manifest rather than being repeated at each call site.
+ */
+function createStepNode(
+  id: string,
+  type: NodeType,
+  position: XYPosition
+): StepNodeType {
+  const definition = nodeRegistry[type]
+
+  return {
+    id,
+    type: "step",
+    position,
+    data: {
+      type,
+      kind: definition.kind,
+      title: definition.label,
+      values: Object.fromEntries(
+        definition.fields.map((field) => [field.key, ""])
+      ),
+    },
+  }
+}
+
+// Placeholder graph until workflows carry their own nodes and edges. Laid out
+// left to right, because the handles sit on the sides of a step.
+const initialNodes: StepNodeType[] = [
+  createStepNode("n1", "start", { x: 0, y: 0 }),
+  createStepNode("n2", "open-url", { x: 320, y: 0 }),
 ]
 
 const initialEdges: Edge[] = [{ id: "n1-n2", source: "n1", target: "n2" }]
@@ -96,6 +136,7 @@ export function Canvas({ workflowId }: { workflowId: string }) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         colorMode={colorMode}
         maxZoom={1}
