@@ -23,7 +23,19 @@ export async function AppSidebar({
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="h-12 flex-row items-center justify-between gap-2 group-data-[collapsible=icon]:justify-center">
         <div className="flex min-w-0 flex-1 items-center group-data-[collapsible=icon]:hidden">
-          <OrganizationSwitcher hidePersonal afterSelectOrganizationUrl="/" />
+          {/*
+            Every route below the dashboard is scoped to the active
+            organization, so each way of changing it sends the user back to the
+            root. Staying put would leave a page that was rendered for the
+            previous orgId: a workflow the new organization cannot open, or a
+            sidebar listing the old organization's workflows.
+          */}
+          <OrganizationSwitcher
+            hidePersonal
+            afterSelectOrganizationUrl="/"
+            afterCreateOrganizationUrl="/"
+            afterLeaveOrganizationUrl="/"
+          />
         </div>
         <SidebarTrigger className="shrink-0" />
       </SidebarHeader>

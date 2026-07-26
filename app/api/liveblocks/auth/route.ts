@@ -32,6 +32,10 @@ export async function POST() {
       // admits this group rather than individual users, so membership changes in
       // Clerk take effect without touching room permissions.
       groupIds: [orgId],
+      // Confines the token to one organization's resources, even if this user
+      // belongs to others. A user who switches organization re-authenticates and
+      // gets a token that cannot reach the rooms of the one they left.
+      organizationId: orgId,
     },
     {
       // Feeds `other.info` in the browser. Liveblocks' own components read names

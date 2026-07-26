@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 
+import { getLiveblocks } from "@/lib/liveblocks"
 import { getWorkflow } from "@/features/workflows/data"
 import { Room } from "@/features/workflows/components/room"
 import { WorkflowShell } from "@/features/workflows/components/workflow-shell"
@@ -26,11 +27,27 @@ export default async function WorkflowPage({
     notFound()
   }
 
+  // First level: the database decides whether this page renders at all.
   const workflow = await getWorkflow(orgId, id)
 
   if (!workflow) {
     notFound()
   }
+
+  // Second level: the room decides who it admits. The ID token from
+  // /api/liveblocks/auth claims the caller's orgId as a group and carries no
+  // permissions of its own, so this is what actually scopes the room, and it
+  // holds even for a client that never loads this page.
+  await getLiveblocks().getOrCreateRoom(id, {
+    // Private by default, then opened to one organization. Without the empty
+    // default the room would admit every authenticated user.
+    defaultAccesses: [],
+    groupsAccesses: { [orgId]: ["room:write"] },
+    // Compartmentalizes the room in the Liveblocks dashboard and API, where it
+    // would otherwise land in the "default" organization alongside every other
+    // tenant's rooms. Also lets getRooms be filtered by organization.
+    organizationId: orgId,
+  })
 
   return (
     <Room roomId={id}>

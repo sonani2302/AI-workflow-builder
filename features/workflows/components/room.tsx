@@ -40,9 +40,9 @@ export function Room({
 }) {
   return (
     <LiveblocksProvider
-      // Not a public key: the endpoint checks that the caller's organization
-      // owns this workflow before granting the room.
-      authEndpoint="/api/liveblocks-auth"
+      // ID tokens: the endpoint identifies the caller and the organization they
+      // belong to, and the room's groupsAccesses decides what that admits.
+      authEndpoint="/api/liveblocks/auth"
       // Liveblocks' own components read names and avatars through here rather
       // than from the token's userInfo, so without it cursors stay anonymous.
       resolveUsers={resolveUsers}
