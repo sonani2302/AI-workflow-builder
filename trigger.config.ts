@@ -18,5 +18,7 @@ export default defineConfig({
       randomize: true,
     },
   },
-  dirs: ["./trigger"],
+  // Tasks live with the feature they belong to rather than in a top-level
+  // /trigger directory. A feature outside workflows needs its own entry here.
+  dirs: ["./features/workflows/task"],
 })

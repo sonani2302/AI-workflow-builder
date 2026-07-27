@@ -6,24 +6,52 @@ import { auth } from "@clerk/nextjs/server"
 import { tasks } from "@trigger.dev/sdk"
 
 import { getLiveblocks } from "@/lib/liveblocks"
-import { deleteWorkflow } from "@/features/workflows/data"
+import { deleteWorkflow, getWorkflow } from "@/features/workflows/data"
+import { validateGraph } from "@/features/workflows/lib/validate-graph"
+import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
 
 // Type-only: triggering by id keeps the task code out of the Next.js bundle.
-import type { helloWorldTask } from "@/trigger/example"
+import type { runWorkflowTask } from "@/features/workflows/task/run-workflow"
 
 /**
  * Queue a background run for one workflow. Returns the run id instead of
  * waiting for the task, so the caller can subscribe to its progress.
+ *
+ * The graph comes from the caller because that is where it lives: the canvas
+ * is held in Liveblocks storage, and the row's graph column is only written
+ * on a save.
  */
-export async function runWorkflowAction(workflowId: string) {
+export async function runWorkflowAction(
+  workflowId: string,
+  graph: WorkflowGraph
+) {
   const { orgId } = await auth()
 
   if (!orgId) {
     throw new Error("No active organization")
   }
 
-  const handle = await tasks.trigger<typeof helloWorldTask>("hello-world", {
-    message: `Running workflow ${workflowId}`,
+  // Both the id and the graph arrive from the browser, so neither is taken on
+  // trust: this confirms the workflow is this organization's before spending a
+  // run on it.
+  const workflow = await getWorkflow(orgId, workflowId)
+
+  if (!workflow) {
+    throw new Error("Workflow not found")
+  }
+
+  // The editor checks this too, for an answer without a round trip. Here it
+  // keeps a graph that cannot run from being queued at all, so the caller gets
+  // a message rather than a failed run to go and read.
+  const validation = validateGraph(graph)
+
+  if (!validation.ok) {
+    throw new Error(validation.issues[0].message)
+  }
+
+  const handle = await tasks.trigger<typeof runWorkflowTask>("run-workflow", {
+    workflowId,
+    graph,
   })
 
   // The handle's token is already scoped to read this one run, which is all a

@@ -2,7 +2,7 @@
 
 import { useRealtimeRun } from "@trigger.dev/react-hooks"
 
-import type { helloWorldTask } from "@/trigger/example"
+import type { runWorkflowTask } from "@/features/workflows/task/run-workflow"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -28,9 +28,9 @@ export function RunStatus({
   accessToken: string
 }) {
   // Typing the hook with the task makes run.output the task's return value.
-  const { run, error } = useRealtimeRun<typeof helloWorldTask>(runId, {
+  const { run, error } = useRealtimeRun<typeof runWorkflowTask>(runId, {
     accessToken,
-    // The payload is only the message we just sent, so skip shipping it back.
+    // The payload is the whole graph we just sent, so skip shipping it back.
     skipColumns: ["payload"],
   })
 

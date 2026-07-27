@@ -1,4 +1,4 @@
-import type { Node } from "@xyflow/react"
+import type { Edge, Node } from "@xyflow/react"
 import { Globe, MousePointerClick, type LucideIcon } from "lucide-react"
 
 export type StepNodeKind = "trigger" | "action"
@@ -56,3 +56,17 @@ export type StepNodeData = {
 }
 
 export type StepNodeType = Node<StepNodeData, "step">
+
+/**
+ * A workflow's canvas as it is stored on the row: the same nodes and edges
+ * React Flow renders, so a saved graph loads straight back onto the canvas
+ * without a translation step.
+ *
+ * Edge stays React Flow's own type rather than a narrowed one. Nothing here
+ * owns a custom edge yet, and the fields it carries beyond source and target
+ * — type, markerEnd, the handles — are exactly what the canvas needs back.
+ */
+export type WorkflowGraph = {
+  nodes: StepNodeType[]
+  edges: Edge[]
+}

@@ -41,7 +41,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
-import { deleteWorkflowAction } from "@/features/workflows/actions"
+import {
+  deleteWorkflowAction,
+  runWorkflowAction,
+} from "@/features/workflows/actions"
+import { RunStatus } from "@/features/workflows/components/run-status"
+import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import {
   createStepNode,
   stepNodeSize,
@@ -363,18 +368,72 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
 }
 
 // Kicks off a run of the current workflow.
-function RunButton() {
+function RunButton({ workflowId }: { workflowId: string }) {
+  const { getNodes, getEdges } = useReactFlow<StepNodeType>()
+  const [isPending, startTransition] = useTransition()
+  const [handle, setHandle] = useState<{
+    runId: string
+    accessToken: string
+  } | null>(null)
+
+  const handleRun = () => {
+    // The store is the source of truth, not the row: the canvas lives in
+    // Liveblocks storage until a save writes it to the graph column.
+    const graph = { nodes: getNodes(), edges: getEdges() }
+
+    // Checked here first so an obvious mistake comes back without a round
+    // trip. The action checks it again before queueing, and the task once
+    // more when it runs.
+    const validation = validateGraph(graph)
+
+    if (!validation.ok) {
+      const [first, ...rest] = validation.issues
+
+      // One toast rather than one per issue: a graph with four problems would
+      // otherwise bury the canvas under four of these.
+      toast.error(first.message, {
+        description:
+          rest.length > 0
+            ? `And ${rest.length} more problem${rest.length === 1 ? "" : "s"} to fix.`
+            : undefined,
+      })
+
+      return
+    }
+
+    // The pending flag also guards against a double click queueing two runs.
+    startTransition(async () => {
+      try {
+        setHandle(await runWorkflowAction(workflowId, graph))
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not start the run"
+        )
+      }
+    })
+  }
+
   return (
-    <Button
-      size="sm"
-      variant="secondary"
-      onClick={() => {
-        // TODO: validate the graph and run the workflow (toggle to Stop while running).
-      }}
-    >
-      <Play fill="primary" />
-      Run
-    </Button>
+    <div className="flex flex-col items-end gap-1.5">
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={handleRun}
+        disabled={isPending}
+      >
+        <Play fill="primary" />
+        Run
+      </Button>
+
+      {/* Keyed by run id so each new run remounts with a fresh subscription. */}
+      {handle ? (
+        <RunStatus
+          key={handle.runId}
+          runId={handle.runId}
+          accessToken={handle.accessToken}
+        />
+      ) : null}
+    </div>
   )
 }
 
@@ -425,9 +484,11 @@ export function RightSidebar({ workflowId }: { workflowId: string }) {
       groupResizeBehavior="preserve-pixel-size"
     >
       <Tabs value={tab} onValueChange={setTab} className="size-full gap-0">
-        <div className="flex items-center justify-between border-b border-border p-2">
+        {/* items-start, not items-center: the run status grows under the Run
+            button and would otherwise drag the "..." menu down with it. */}
+        <div className="flex items-start justify-between border-b border-border p-2">
           <ActionsMenu workflowId={workflowId} />
-          <RunButton />
+          <RunButton workflowId={workflowId} />
         </div>
         <TabsList className="m-2 w-fit bg-background">
           <TabsTrigger
