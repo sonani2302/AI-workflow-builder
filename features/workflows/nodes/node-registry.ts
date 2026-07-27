@@ -8,6 +8,11 @@ export type NodeField = {
   key: string
   label: string
   placeholder?: string
+  // Opts the field into a textarea rather than a single-line input, for values
+  // that run long or carry their own line breaks — a prompt, a body, a script.
+  // The choice belongs here so it travels with the field, rather than the
+  // editor keeping its own list of which keys are large.
+  multiline?: boolean
 }
 
 // A node type's manifest entry. Add a node by adding an entry to nodeRegistry.

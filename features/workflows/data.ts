@@ -30,6 +30,24 @@ export async function getWorkflow(
   return workflow
 }
 
+/**
+ * Delete one workflow, matched on both id and organization so a caller cannot
+ * remove another org's row by guessing its id. Returns the row that went, or
+ * undefined when nothing matched — which is how the caller tells "deleted"
+ * apart from "was never yours".
+ */
+export async function deleteWorkflow(
+  orgId: string,
+  id: string
+): Promise<Workflow | undefined> {
+  const [workflow] = await db
+    .delete(workflows)
+    .where(and(eq(workflows.orgId, orgId), eq(workflows.id, id)))
+    .returning()
+
+  return workflow
+}
+
 /** Create an empty workflow for one Clerk organization. */
 export async function createWorkflow(orgId: string, name: string) {
   const [workflow] = await db

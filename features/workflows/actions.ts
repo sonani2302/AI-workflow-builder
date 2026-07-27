@@ -1,7 +1,12 @@
 "use server"
 
+import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import { tasks } from "@trigger.dev/sdk"
+
+import { getLiveblocks } from "@/lib/liveblocks"
+import { deleteWorkflow } from "@/features/workflows/data"
 
 // Type-only: triggering by id keeps the task code out of the Next.js bundle.
 import type { helloWorldTask } from "@/trigger/example"
@@ -24,4 +29,44 @@ export async function runWorkflowAction(workflowId: string) {
   // The handle's token is already scoped to read this one run, which is all a
   // realtime subscription needs. It expires after 15 minutes.
   return { runId: handle.id, accessToken: handle.publicAccessToken }
+}
+
+/**
+ * Delete one workflow along with the room holding its canvas, then send the
+ * caller back to the dashboard.
+ */
+export async function deleteWorkflowAction(workflowId: string) {
+  const { orgId } = await auth()
+
+  if (!orgId) {
+    throw new Error("No active organization")
+  }
+
+  // Scoped to the organization, and the result checked, so an id guessed from
+  // outside the org removes nothing — and never reaches the room below.
+  const deleted = await deleteWorkflow(orgId, workflowId)
+
+  if (!deleted) {
+    throw new Error("Workflow not found")
+  }
+
+  // The room id is the workflow id, set when the page created the room.
+  //
+  // Deleting the row first decides which way this can fail: a problem here
+  // strands a room nothing can reach any more, where the other order would
+  // empty the canvas out from under a workflow that still exists and still
+  // opens. So this only logs — the workflow is gone either way, and there is
+  // nothing the caller could do with the error. A workflow that was never
+  // opened has no room at all, and lands here as a 404.
+  try {
+    await getLiveblocks().deleteRoom(workflowId)
+  } catch (error) {
+    console.error(`Could not delete Liveblocks room ${workflowId}`, error)
+  }
+
+  // The workflow list lives in the (dashboard) layout, which sits at "/".
+  revalidatePath("/", "layout")
+
+  // redirect() throws NEXT_REDIRECT, so it must stay outside any try/catch.
+  redirect("/")
 }

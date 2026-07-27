@@ -1,9 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useTransition } from "react"
 import { MoreHorizontal, Play, Trash2 } from "lucide-react"
 import { toast } from "sonner"
-import { useReactFlow, useStoreApi } from "@xyflow/react"
+import {
+  useNodesData,
+  useReactFlow,
+  useStore,
+  useStoreApi,
+} from "@xyflow/react"
 
 import {
   Accordion,
@@ -11,6 +16,17 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -22,8 +38,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ResizablePanel } from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+import { deleteWorkflowAction } from "@/features/workflows/actions"
 import {
   createStepNode,
   stepNodeSize,
@@ -88,8 +106,10 @@ function Section({
 // Editor tab — edits the fields of the selected node.
 // ---------------------------------------------------------------------------
 
-// A single editor field for a node property.
-function FieldInput({
+// A single editor field for a node property. Which control it renders comes
+// from the field's own definition, so a node type opts into a textarea in the
+// registry and the editor never grows a list of which keys are the large ones.
+function FieldControl({
   field,
   value,
   onChange,
@@ -98,7 +118,19 @@ function FieldInput({
   value: string
   onChange: (value: string) => void
 }) {
-  // TODO: support a multiline field variant (textarea).
+  if (field.multiline) {
+    // Textarea carries field-sizing-content, so it starts at a few lines and
+    // grows with what is typed instead of scrolling inside a fixed box.
+    return (
+      <Textarea
+        id={field.key}
+        value={value}
+        placeholder={field.placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    )
+  }
+
   return (
     <Input
       id={field.key}
@@ -109,8 +141,15 @@ function FieldInput({
   )
 }
 
+// What the editor needs of a node. Deliberately not the whole node: leaving
+// out position is what keeps dragging one from re-rendering this panel on
+// every frame. Matches what useNodesData hands back.
+type SelectedNode = Pick<StepNodeType, "id" | "type" | "data">
+
 // The Editor tab: one input per field on the selected node, or an empty state.
-function Inspector({ node }: { node: StepNodeType | undefined }) {
+function Inspector({ node }: { node: SelectedNode | null }) {
+  const { updateNodeData } = useReactFlow<StepNodeType>()
+
   if (!node) {
     return (
       <Section title="Editor">
@@ -133,13 +172,19 @@ function Inspector({ node }: { node: StepNodeType | undefined }) {
               <Label htmlFor={field.key} className="text-xs">
                 {field.label}
               </Label>
-              <FieldInput
+              <FieldControl
                 field={field}
                 value={values[field.key] ?? ""}
-                onChange={(value) => {
-                  // TODO: save the edit back onto the selected node.
-                  void value
-                }}
+                onChange={(value) =>
+                  // The callback form reads the node as it stands now rather
+                  // than as this render closed over it, so a keystroke cannot
+                  // undo an edit someone else made in between. Merging over
+                  // the current values keeps the node's other fields, which a
+                  // bare { values: { [key]: value } } would drop.
+                  updateNodeData(node.id, (current) => ({
+                    values: { ...current.data.values, [field.key]: value },
+                  }))
+                }
               />
             </div>
           ))
@@ -242,25 +287,78 @@ function Palette() {
 // ---------------------------------------------------------------------------
 
 // The "..." menu for workflow-level actions.
-function ActionsMenu() {
+function ActionsMenu({ workflowId }: { workflowId: string }) {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  const handleDelete = () => {
+    startTransition(async () => {
+      try {
+        // Redirects to "/" on success, so nothing below it runs and the dialog
+        // leaves with the page rather than needing to be closed.
+        await deleteWorkflowAction(workflowId)
+      } catch (error) {
+        setConfirmOpen(false)
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not delete the workflow"
+        )
+      }
+    })
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button size="icon" variant="ghost" />}>
-        <MoreHorizontal />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-48">
-        <DropdownMenuItem
-          variant="destructive"
-          className="text-xs [&_svg:not([class*='size-'])]:size-3.5"
-          onSelect={() => {
-            // TODO: delete the workflow, then navigate away.
-          }}
-        >
-          <Trash2 />
-          Delete workflow
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button size="icon" variant="ghost" />}>
+          <MoreHorizontal />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-48">
+          <DropdownMenuItem
+            variant="destructive"
+            className="text-xs [&_svg:not([class*='size-'])]:size-3.5"
+            // onClick, not onSelect: the item renders a div, whose onSelect is
+            // the native text-selection event and never fires on a click.
+            // Letting the menu close on click is fine now — the delete lives
+            // behind the dialog, so nothing is in flight yet.
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 />
+            Delete workflow
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Sibling of the menu rather than nested inside it: the menu unmounts
+          its content on close, which would take the dialog with it. */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <Trash2 className="text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Delete this workflow?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The workflow and everything on its canvas go, for everyone in the
+              organization. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* Both disabled while the delete is in flight: the request is
+                already away, so closing the dialog would not call it back. */}
+            <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={isPending}
+              onClick={handleDelete}
+            >
+              {isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -284,13 +382,39 @@ function RunButton() {
 // The sidebar itself — header on top, then the Toolbar / Editor tabs.
 // ---------------------------------------------------------------------------
 
-export function RightSidebar() {
+export function RightSidebar({ workflowId }: { workflowId: string }) {
   const [tab, setTab] = useState("toolbar")
 
-  // TODO: read the currently selected node from React Flow.
-  const selected: StepNodeType | undefined = undefined
+  // React Flow keeps the selection on the nodes themselves, so the store is
+  // where a click on the canvas becomes readable out here. Liveblocks writes
+  // it with setLocal, which keeps it this user's selection rather than the
+  // room's. The editor edits one node, so a multi-selection takes the first.
+  const selectedId = useStore(
+    (state) => state.nodes.find((node) => node.selected)?.id ?? ""
+  )
 
-  // TODO: auto-switch to the Editor tab when the selection changes.
+  // Subscribes to that node's data alone, so an edit re-renders the editor but
+  // a drag does not. An id no node holds — "" when the selection is empty —
+  // comes back as null, which Inspector renders as its empty state.
+  const selected = useNodesData<StepNodeType>(selectedId)
+
+  // Clicking a node opens the editor on it. Adjusted during render rather than
+  // in an effect, so the Toolbar never paints once before the switch.
+  //
+  // Tracking the last id, instead of switching whenever anything is selected,
+  // is what makes this a nudge rather than a lock: the tab moves when the
+  // selection moves — including from one node straight to another — and you
+  // can still go back to the Toolbar with a node selected. Deselecting leaves
+  // the editor open on its empty state rather than yanking the tab away.
+  const [lastSelectedId, setLastSelectedId] = useState(selectedId)
+
+  if (selectedId !== lastSelectedId) {
+    setLastSelectedId(selectedId)
+
+    if (selectedId) {
+      setTab("editor")
+    }
+  }
 
   return (
     <ResizablePanel
@@ -302,7 +426,7 @@ export function RightSidebar() {
     >
       <Tabs value={tab} onValueChange={setTab} className="size-full gap-0">
         <div className="flex items-center justify-between border-b border-border p-2">
-          <ActionsMenu />
+          <ActionsMenu workflowId={workflowId} />
           <RunButton />
         </div>
         <TabsList className="m-2 w-fit bg-background">
