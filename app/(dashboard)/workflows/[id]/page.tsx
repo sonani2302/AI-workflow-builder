@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
+import { ReactFlowProvider } from "@xyflow/react"
 
 import { getLiveblocks } from "@/lib/liveblocks"
 import { getWorkflow } from "@/features/workflows/data"
@@ -51,7 +52,11 @@ export default async function WorkflowPage({
 
   return (
     <Room roomId={id}>
-      <WorkflowShell workflowId={id} />
+      {/* Sits above both the canvas and the sidebar, so the palette out in the
+          sidebar writes to the same React Flow store the canvas renders. */}
+      <ReactFlowProvider>
+        <WorkflowShell workflowId={id} />
+      </ReactFlowProvider>
     </Room>
   )
 }

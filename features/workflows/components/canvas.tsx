@@ -13,46 +13,16 @@ import {
   type DefaultEdgeOptions,
   type Edge,
   type NodeTypes,
-  type XYPosition,
 } from "@xyflow/react"
 
 import { StepNode } from "@/features/workflows/components/step-node"
-import {
-  nodeRegistry,
-  type NodeType,
-  type StepNodeType,
-} from "@/features/workflows/nodes/node-registry"
+import { createStepNode } from "@/features/workflows/nodes/create-step-node"
+import type { StepNodeType } from "@/features/workflows/nodes/node-registry"
 
 // Every node is rendered by StepNode; which entry it draws comes from
 // data.type. Must stay a module constant, or React Flow remounts all nodes on
 // each render.
 const nodeTypes: NodeTypes = { step: StepNode }
-
-/**
- * Builds a node from its registry entry, so kind, title and the shape of
- * values follow the manifest rather than being repeated at each call site.
- */
-function createStepNode(
-  id: string,
-  type: NodeType,
-  position: XYPosition
-): StepNodeType {
-  const definition = nodeRegistry[type]
-
-  return {
-    id,
-    type: "step",
-    position,
-    data: {
-      type,
-      kind: definition.kind,
-      title: definition.label,
-      values: Object.fromEntries(
-        definition.fields.map((field) => [field.key, ""])
-      ),
-    },
-  }
-}
 
 // Placeholder graph until workflows carry their own nodes and edges. Laid out
 // left to right, because the handles sit on the sides of a step.
