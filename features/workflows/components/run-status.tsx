@@ -1,17 +1,15 @@
 "use client"
 
 import { useRealtimeRun } from "@trigger.dev/react-hooks"
-import { Check, ExternalLink, Minus, X } from "lucide-react"
+import { ExternalLink } from "lucide-react"
 
 import type {
   RunProgress,
   runWorkflowTask,
-  StepReport,
 } from "@/features/workflows/task/run-workflow"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { cn } from "@/lib/utils"
 
 /** Terminal statuses that mean the run stopped without completing. */
 const FAILED_STATUSES = [
@@ -23,19 +21,14 @@ const FAILED_STATUSES = [
   "TIMED_OUT",
 ]
 
-const STEP_ICON = {
-  completed: Check,
-  failed: X,
-  skipped: Minus,
-} as const
-
 /**
  * Live status of a single task run. Subscribes over Trigger.dev realtime, so it
  * updates without polling and needs no refresh of the surrounding page.
  *
- * The status alone only says a run is in progress. What the task writes to its
- * metadata as it goes — which step it is on, how each one ended — is what makes
- * that legible, so this reads the two together.
+ * How far along the run is, and which step it is on, comes from what the task
+ * writes to its metadata as it goes. The per-node statuses it also publishes
+ * under "steps" are not read here: they are keyed by node id, which belongs to
+ * the canvas, where a node can colour itself.
  */
 export function RunStatus({
   runId,
@@ -75,13 +68,11 @@ export function RunStatus({
   const meta = run.metadata as
     | {
         progress?: RunProgress
-        steps?: StepReport[]
         sessionUrl?: string | null
       }
     | undefined
 
   const progress = meta?.progress
-  const steps = meta?.steps ?? []
   const sessionUrl = meta?.sessionUrl
 
   return (
@@ -112,43 +103,6 @@ export function RunStatus({
             </span>
           </p>
         </div>
-      ) : null}
-
-      {steps.length > 0 ? (
-        <ul className="flex w-full flex-col gap-0.5">
-          {steps.map((step) => {
-            const Icon = STEP_ICON[step.status]
-
-            return (
-              <li
-                key={step.nodeId}
-                className="flex items-center gap-1.5 text-xs"
-                // The message is the only place a failure's reason is shown in
-                // full, since the row itself truncates.
-                title={step.error ?? step.title}
-              >
-                <Icon
-                  className={cn(
-                    "size-3 shrink-0",
-                    step.status === "failed"
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                  )}
-                />
-                <span
-                  className={cn(
-                    "truncate",
-                    step.status === "failed"
-                      ? "text-destructive"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {step.title}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
       ) : null}
 
       {sessionUrl ? (

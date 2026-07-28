@@ -7,6 +7,7 @@ import { tasks } from "@trigger.dev/sdk"
 
 import { getLiveblocks } from "@/lib/liveblocks"
 import { deleteWorkflow, getWorkflow } from "@/features/workflows/data"
+import { workflowRunsTag } from "@/features/workflows/lib/run-tag"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
 
@@ -49,10 +50,14 @@ export async function runWorkflowAction(
     throw new Error(validation.issues[0].message)
   }
 
-  const handle = await tasks.trigger<typeof runWorkflowTask>("run-workflow", {
-    workflowId,
-    graph,
-  })
+  // Tagged so the canvas can subscribe to this workflow's runs without knowing
+  // any run id — including runs it did not start, and ones already going when
+  // the page was opened.
+  const handle = await tasks.trigger<typeof runWorkflowTask>(
+    "run-workflow",
+    { workflowId, graph },
+    { tags: [workflowRunsTag(workflowId)] }
+  )
 
   // The handle's token is already scoped to read this one run, which is all a
   // realtime subscription needs. It expires after 15 minutes.

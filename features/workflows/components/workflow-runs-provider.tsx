@@ -1,0 +1,106 @@
+"use client"
+
+import { createContext, useContext, useMemo } from "react"
+import { useRealtimeRunsWithTag } from "@trigger.dev/react-hooks"
+import type { RealtimeRun } from "@trigger.dev/core/v3"
+
+import { workflowRunsTag } from "@/features/workflows/lib/run-tag"
+import type {
+  RunStep,
+  runWorkflowTask,
+} from "@/features/workflows/task/run-workflow"
+
+// One subscription to a workflow's runs, held above the canvas so every node
+// reads the same live state. Subscribing per node would open a socket each and
+// have them disagree while the updates landed at different moments.
+
+type WorkflowRun = RealtimeRun<typeof runWorkflowTask>
+
+type WorkflowRunsValue = {
+  runs: WorkflowRun[]
+  error: Error | undefined
+}
+
+const WorkflowRunsContext = createContext<WorkflowRunsValue | null>(null)
+
+export function WorkflowRunsProvider({
+  workflowId,
+  accessToken,
+  children,
+}: {
+  workflowId: string
+  /**
+   * Scoped to read this workflow's tag, not one run — the subscription below
+   * follows every run of the workflow, including ones started before this page
+   * was opened. Mint it on the server with auth.createPublicToken.
+   */
+  accessToken: string
+  children: React.ReactNode
+}) {
+  // By tag rather than by run id, because the canvas has no id to go on until a
+  // run exists: the tag is known from the workflow alone, so the subscription
+  // can be standing before anything is queued and pick a new run up on its own.
+  const { runs, error } = useRealtimeRunsWithTag<typeof runWorkflowTask>(
+    workflowRunsTag(workflowId),
+    {
+      accessToken,
+      // Without a token the hook throws rather than sitting idle, so a page
+      // rendered before one is minted is held back instead of crashing.
+      enabled: Boolean(accessToken),
+    }
+  )
+
+  const value = useMemo(() => ({ runs, error }), [runs, error])
+
+  return <WorkflowRunsContext value={value}>{children}</WorkflowRunsContext>
+}
+
+function useWorkflowRuns() {
+  const value = useContext(WorkflowRunsContext)
+
+  if (!value) {
+    throw new Error(
+      "useWorkflowRuns must be used inside a WorkflowRunsProvider"
+    )
+  }
+
+  return value
+}
+
+/**
+ * The newest run's per-node statuses, and whether it is still going.
+ *
+ * Output first, then metadata. They carry the same list, but by different
+ * routes: metadata is streamed as the run walks the graph and is the only
+ * source while it is still moving, and the output is delivered once at the end
+ * and kept. Preferring the output means a finished run reads the same on a page
+ * opened an hour later as it did live, without depending on the last flush
+ * having gone out before the run ended.
+ */
+export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
+  const { runs } = useWorkflowRuns()
+
+  return useMemo(() => {
+    // Newest by createdAt rather than by position: the hook makes no promise
+    // about the order runs arrive in, and a run updating mid-list could move it.
+    const latest = runs.reduce<WorkflowRun | null>(
+      (newest, run) =>
+        !newest || run.createdAt > newest.createdAt ? run : newest,
+      null
+    )
+
+    if (!latest) {
+      return { steps: [], isLive: false }
+    }
+
+    const steps =
+      latest.output?.steps ?? (latest.metadata?.steps as RunStep[] | undefined)
+
+    return {
+      steps: steps ?? [],
+      // The run's own booleans rather than a list of status strings to keep in
+      // step with the ones Trigger.dev adds.
+      isLive: latest.isQueued || latest.isExecuting,
+    }
+  }, [runs])
+}

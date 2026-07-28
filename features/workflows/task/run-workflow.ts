@@ -6,10 +6,7 @@ import {
   type RunOutputs,
 } from "@/features/workflows/lib/interpolate"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
-import {
-  NodeInputError,
-  type JsonObject,
-} from "@/features/workflows/nodes/node-contract"
+import { NodeInputError } from "@/features/workflows/nodes/node-contract"
 import { executorFor } from "@/features/workflows/nodes/node-executor"
 import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
 
@@ -23,14 +20,14 @@ export type RunWorkflowPayload = {
   graph: WorkflowGraph
 }
 
-/** One step's outcome, appended to run metadata as the run walks the graph. */
-export type StepReport = {
+/**
+ * One node's live status. The whole list is published to run metadata under
+ * "steps" and replaced on every change, so the canvas can colour a node by
+ * looking its own id up rather than following the run's log.
+ */
+export type RunStep = {
   nodeId: string
-  type: string
-  title: string
-  status: "completed" | "failed" | "skipped"
-  output?: JsonObject
-  error?: string
+  status: "pending" | "running" | "done" | "failed"
 }
 
 /** Where the run has got to, replaced in run metadata on every step. */
@@ -64,17 +61,33 @@ export const runWorkflowTask = task({
     const { order } = validation
     const byId = new Map(graph.nodes.map((node) => [node.id, node]))
 
-    // Set rather than left to accumulate, because metadata outlives an attempt:
-    // a retry re-walks the same graph from the top, and appending to whatever
-    // the failed attempt left behind would show every step twice.
+    // Every node the run is about to walk, all pending, published before any of
+    // them starts. The canvas gets the shape of the run up front this way, so a
+    // node can show as waiting rather than appearing only once it is reached.
+    //
+    // Rebuilt rather than added to, because metadata outlives an attempt: a
+    // retry re-walks the same graph from the top, and a list carried over from
+    // the failed attempt would still be holding its stale statuses.
+    const steps: RunStep[] = order.map((nodeId) => ({
+      nodeId,
+      status: "pending",
+    }))
+
+    // steps is mutated in place and re-published whole on every change. Held as
+    // its own function so no transition can quietly forget to send it.
+    function publishSteps() {
+      metadata.set("steps", steps)
+    }
+
     metadata
       .set("progress", {
         total: order.length,
         completed: 0,
         current: null,
       } satisfies RunProgress)
-      .set("steps", [])
       .set("sessionUrl", null)
+
+    publishSteps()
 
     logger.log("Starting workflow", { workflowId, steps: order.length })
 
@@ -99,7 +112,22 @@ export const runWorkflowTask = task({
         )
       }
 
-      const opened = new Stagehand({ env: "BROWSERBASE", apiKey, projectId })
+      const opened = new Stagehand({
+        env: "BROWSERBASE",
+        apiKey,
+        projectId,
+        // Stagehand logs through pino, which reaches its worker thread by
+        // resolving a file path at run time. The Trigger build bundles the
+        // package into one chunk, that path stops existing, and the logger
+        // throws while the constructor is still running — before a session is
+        // ever opened, which is why a failure here leaves nothing behind on
+        // Browserbase to look at. disablePino is Stagehand's own way out of
+        // exactly this, and the lines go to the run's log instead of being lost.
+        disablePino: true,
+        logger: ({ message, level, category }) =>
+          logger.debug(`[stagehand] ${message}`, { level, category }),
+      })
+
       await opened.init()
       stagehand = opened
 
@@ -113,7 +141,9 @@ export const runWorkflowTask = task({
       return opened
     }
 
-    const steps: StepReport[] = []
+    // Counted separately from the steps list because the trigger is in that
+    // list too, and "Ran 3 steps" would be one more than anything actually did.
+    let ran = 0
 
     // What each node produced, keyed by its id, so a later step can be pointed
     // at it. Filled in as the run goes and only ever read backwards: order is
@@ -136,13 +166,12 @@ export const runWorkflowTask = task({
         const executor = executorFor(type)
 
         // The trigger is on the canvas and in the order, but it marks where the
-        // run starts rather than doing work. Reported anyway so the UI's step
-        // list matches the graph the user drew.
+        // run starts rather than doing work. Straight to done, with no running
+        // in between, so the canvas does not leave it looking like it is waiting
+        // on something for the length of the run.
         if (!executor) {
-          const report: StepReport = { nodeId, type, title, status: "skipped" }
-
-          steps.push(report)
-          metadata.append("steps", report)
+          steps[index].status = "done"
+          publishSteps()
           continue
         }
 
@@ -165,6 +194,15 @@ export const runWorkflowTask = task({
           values: resolved,
         })
 
+        steps[index].status = "running"
+        publishSteps()
+
+        // Forced out now rather than left to the background flush. The next
+        // change to this node is "done", and metadata is sent as it stands when
+        // the flush happens — so without this, a step that finishes quickly
+        // would go out already finished and the canvas would never see it run.
+        await metadata.flush()
+
         try {
           const output = await executor(
             { stagehand: await browser() },
@@ -172,31 +210,24 @@ export const runWorkflowTask = task({
           )
 
           outputs[nodeId] = output
+          ran++
 
-          const report: StepReport = {
-            nodeId,
-            type,
-            title,
-            status: "completed",
-            output,
-          }
+          steps[index].status = "done"
+          publishSteps()
 
-          steps.push(report)
-          metadata.append("steps", report)
           logger.log(`Finished ${title}`, { nodeId, output })
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "The step failed."
 
-          // Recorded before rethrowing, so the UI can say which step stopped
-          // the run rather than only that the run stopped.
-          metadata.append("steps", {
-            nodeId,
-            type,
-            title,
-            status: "failed",
-            error: message,
-          } satisfies StepReport)
+          steps[index].status = "failed"
+          publishSteps()
+
+          // Forced out before the throw below, which is the last thing that
+          // happens in this run. A run that ends by throwing returns no output,
+          // so what has been flushed is all the canvas will ever get — leave
+          // this to the background and the node stays showing as running.
+          await metadata.flush()
 
           // A later step reads the page an earlier one left, so carrying on
           // past a failure would run the rest against a browser that never
@@ -217,8 +248,9 @@ export const runWorkflowTask = task({
 
       logger.log("Finished workflow", { workflowId, steps: steps.length })
 
-      const ran = steps.filter((step) => step.status === "completed").length
-
+      // Returned as well as published. A run's output is delivered once and
+      // kept, so this is the finished state arriving by a route that does not
+      // depend on the last flush having gone out before the run ended.
       return {
         workflowId,
         steps,

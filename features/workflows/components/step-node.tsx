@@ -1,16 +1,33 @@
+"use client"
+
 import { memo } from "react"
 import { Handle, Position, type NodeProps } from "@xyflow/react"
 
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
+import { useLatestRunSteps } from "@/features/workflows/components/workflow-runs-provider"
 import {
   nodeRegistry,
   type StepNodeType,
 } from "@/features/workflows/nodes/node-registry"
 
-function StepNodeComponent({ data, selected }: NodeProps<StepNodeType>) {
+function StepNodeComponent({ id, data, selected }: NodeProps<StepNodeType>) {
   const { type, kind, title, values } = data
   const def = nodeRegistry[type]
   const Icon = def.icon
+
+  // The whole canvas reads one subscription, so a node finds itself in the
+  // latest run's steps by its own id rather than being told from above.
+  const { steps, isLive } = useLatestRunSteps()
+  const status = steps.find((step) => step.nodeId === id)?.status
+
+  // A finished run leaves its last statuses standing, and one of them can be
+  // "running" — the step it stopped on, whose "failed" never went out, or one
+  // cut short when the run was cancelled or timed out. Spinning on that forever
+  // would claim work is still happening, so running only counts while the run
+  // itself is still going.
+  const isRunning = status === "running" && isLive
+  const isFailed = status === "failed"
 
   // A trigger starts the flow and takes no input, so it has no target handle.
   const hasTarget = kind !== "trigger"
@@ -18,7 +35,9 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeType>) {
   return (
     <div
       className={cn(
-        "min-w-50 max-w-80 rounded-(--radius) border-2 border-border bg-card text-card-foreground",
+        "max-w-80 min-w-50 rounded-(--radius) border-2 border-border bg-card text-card-foreground",
+        isRunning && "border-blue-500",
+        isFailed && "border-destructive",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-background"
       )}
     >
@@ -38,7 +57,13 @@ function StepNodeComponent({ data, selected }: NodeProps<StepNodeType>) {
             def.accent
           )}
         >
-          <Icon className="size-4" />
+          {/* In the chip rather than beside it, so a step starting swaps what
+              the node already shows instead of shifting the title along. */}
+          {isRunning ? (
+            <Spinner className="size-4" />
+          ) : (
+            <Icon className="size-4" />
+          )}
         </div>
         <span className="text-sm font-semibold">{title}</span>
       </div>
