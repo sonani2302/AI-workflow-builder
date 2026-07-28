@@ -1,6 +1,10 @@
 import { Stagehand } from "@browserbasehq/stagehand"
 import { AbortTaskRunError, logger, metadata, task } from "@trigger.dev/sdk"
 
+import {
+  interpolate,
+  type RunOutputs,
+} from "@/features/workflows/lib/interpolate"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import {
   NodeInputError,
@@ -111,6 +115,12 @@ export const runWorkflowTask = task({
 
     const steps: StepReport[] = []
 
+    // What each node produced, keyed by its id, so a later step can be pointed
+    // at it. Filled in as the run goes and only ever read backwards: order is
+    // toposort, so by the time a node runs, everything it could reference has
+    // already put its output in here.
+    const outputs: RunOutputs = {}
+
     try {
       for (const [index, nodeId] of order.entries()) {
         // order is toposort over these very node ids, so this cannot miss.
@@ -136,14 +146,33 @@ export const runWorkflowTask = task({
           continue
         }
 
+        // A field can name an earlier node's output — "{{ n2.title }}" — and
+        // this is where that becomes the value itself. Done per run rather than
+        // once on the canvas, because what it resolves to is whatever this run
+        // produced, and the next run will resolve the same field differently.
+        const resolved = Object.fromEntries(
+          Object.entries(values).map(([key, value]) => [
+            key,
+            interpolate(value, outputs),
+          ])
+        )
+
+        // The resolved values rather than what was typed, so the log says what
+        // the step actually ran with.
         logger.log(`Step ${index + 1}/${order.length}: ${title}`, {
           nodeId,
           type,
-          values,
+          values: resolved,
         })
 
         try {
-          const output = await executor({ stagehand: await browser() }, values)
+          const output = await executor(
+            { stagehand: await browser() },
+            resolved
+          )
+
+          outputs[nodeId] = output
+
           const report: StepReport = {
             nodeId,
             type,

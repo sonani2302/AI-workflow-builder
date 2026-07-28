@@ -15,6 +15,17 @@ export type NodeField = {
   multiline?: boolean
 }
 
+// One value a node leaves behind for the nodes after it. path is where the
+// value sits in that node's output, and is the half a placeholder is built
+// from: "{{ <node id>.<path> }}". label is what a picker shows instead.
+//
+// Declared rather than read off a run, because the editor has to offer these
+// while the canvas is being drawn — which is before any output exists.
+export type NodeOutput = {
+  path: string
+  label: string
+}
+
 // A node type's manifest entry. Add a node by adding an entry to nodeRegistry.
 export type NodeDefinition = {
   type: string
@@ -23,6 +34,7 @@ export type NodeDefinition = {
   icon: LucideIcon
   accent: string // Tailwind classes for the icon chip color
   fields: NodeField[]
+  outputs: NodeOutput[]
 }
 
 export const nodeRegistry = {
@@ -33,6 +45,9 @@ export const nodeRegistry = {
     icon: MousePointerClick,
     accent: "bg-blue-500 text-white",
     fields: [],
+    // A trigger marks where a run starts rather than doing work, so there is
+    // nothing for a later node to read off it.
+    outputs: [],
   },
   "open-url": {
     type: "open-url",
@@ -41,6 +56,10 @@ export const nodeRegistry = {
     icon: Globe,
     accent: "bg-emerald-500 text-white",
     fields: [{ key: "url", label: "URL", placeholder: "https://youtube.com" }],
+    outputs: [
+      { path: "url", label: "URL" },
+      { path: "title", label: "Title" },
+    ],
   },
 } satisfies Record<string, NodeDefinition>
 

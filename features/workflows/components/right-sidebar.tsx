@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useRef, useState, useTransition } from "react"
 import { MoreHorizontal, Play, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -46,6 +46,7 @@ import {
   runWorkflowAction,
 } from "@/features/workflows/actions"
 import { RunStatus } from "@/features/workflows/components/run-status"
+import { useUpstreamConnections } from "@/features/workflows/hooks/use-upstream-connections"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import {
   createStepNode,
@@ -118,10 +119,17 @@ function FieldControl({
   field,
   value,
   onChange,
+  onFocus,
+  inputRef,
 }: {
   field: NodeField
   value: string
   onChange: (value: string) => void
+  onFocus: () => void
+  // Handed the live element so a connection chip can drop its token in at the
+  // caret. Both controls take it, because a token is worth inserting into a
+  // one-line URL as much as into a long prompt.
+  inputRef: (element: HTMLInputElement | HTMLTextAreaElement | null) => void
 }) {
   if (field.multiline) {
     // Textarea carries field-sizing-content, so it starts at a few lines and
@@ -129,9 +137,11 @@ function FieldControl({
     return (
       <Textarea
         id={field.key}
+        ref={inputRef}
         value={value}
         placeholder={field.placeholder}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
       />
     )
   }
@@ -139,9 +149,11 @@ function FieldControl({
   return (
     <Input
       id={field.key}
+      ref={inputRef}
       value={value}
       placeholder={field.placeholder}
       onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
     />
   )
 }
@@ -155,6 +167,22 @@ type SelectedNode = Pick<StepNodeType, "id" | "type" | "data">
 function Inspector({ node }: { node: SelectedNode | null }) {
   const { updateNodeData } = useReactFlow<StepNodeType>()
 
+  // Both of these run ahead of the empty state below, because a hook cannot be
+  // called conditionally. "" is the id the connections hook answers with an
+  // empty list, which is the right answer when nothing is selected anyway.
+  const connections = useUpstreamConnections(node?.id ?? "")
+
+  // Which field a chip drops its token into. Recorded on focus rather than on
+  // change, so putting the caret in a field is enough to aim the next chip —
+  // no need to have typed in it first.
+  const [lastFieldKey, setLastFieldKey] = useState<string | null>(null)
+
+  // The live elements, so a token goes in where the caret is rather than only
+  // at the end, and the caret can be put back after it.
+  const fieldRefs = useRef<
+    Record<string, HTMLInputElement | HTMLTextAreaElement | null>
+  >({})
+
   if (!node) {
     return (
       <Section title="Editor">
@@ -165,6 +193,49 @@ function Inspector({ node }: { node: SelectedNode | null }) {
 
   const { type, title, values } = node.data
   const def: NodeDefinition = nodeRegistry[type]
+
+  // Held as its own const so the closure below does not depend on the narrowing
+  // above surviving into a nested function.
+  const nodeId = node.id
+
+  // Where a chip lands: the field last focused, or the first one. Checking the
+  // remembered key against this node's own fields is what makes selecting a
+  // different node fall back to its first field, rather than aiming at a key
+  // that node does not have.
+  const targetKey =
+    def.fields.find((field) => field.key === lastFieldKey)?.key ??
+    def.fields[0]?.key
+
+  function insertToken(token: string) {
+    if (!targetKey) {
+      return
+    }
+
+    const element = fieldRefs.current[targetKey]
+    const current = values[targetKey] ?? ""
+
+    // Where the caret sits, or the end of the text for a field that has not
+    // been focused and so has no selection to speak of.
+    const start = element?.selectionStart ?? current.length
+    const end = element?.selectionEnd ?? current.length
+
+    updateNodeData(nodeId, (currentNode) => ({
+      values: {
+        ...currentNode.data.values,
+        [targetKey]: current.slice(0, start) + token + current.slice(end),
+      },
+    }))
+
+    // Put the caret after what was just inserted, once the new value has been
+    // painted, so a second chip lands after the first rather than back where
+    // the caret was before either of them.
+    const caret = start + token.length
+
+    requestAnimationFrame(() => {
+      element?.focus()
+      element?.setSelectionRange(caret, caret)
+    })
+  }
 
   return (
     <Section title={title} icon={<NodeIcon type={type} />}>
@@ -180,6 +251,10 @@ function Inspector({ node }: { node: SelectedNode | null }) {
               <FieldControl
                 field={field}
                 value={values[field.key] ?? ""}
+                inputRef={(element) => {
+                  fieldRefs.current[field.key] = element
+                }}
+                onFocus={() => setLastFieldKey(field.key)}
                 onChange={(value) =>
                   // The callback form reads the node as it stands now rather
                   // than as this render closed over it, so a keystroke cannot
@@ -194,6 +269,32 @@ function Inspector({ node }: { node: SelectedNode | null }) {
             </div>
           ))
         )}
+
+        {/* Only worth showing when there is both something to insert and a
+            field to insert it into — a chip that quietly did nothing would be
+            worse than no chip. */}
+        {connections.length > 0 && targetKey ? (
+          <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+            <p className="text-xs font-medium">Connections</p>
+
+            <div className="flex flex-wrap gap-1">
+              {connections.map((connection) => (
+                <button
+                  key={connection.token}
+                  type="button"
+                  onClick={() => insertToken(connection.token)}
+                  // The token itself on hover, since the label says which node
+                  // and which output but not what actually gets inserted.
+                  title={connection.token}
+                  className="flex max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  <NodeIcon type={connection.type} className="size-5" />
+                  <span className="truncate">{connection.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Section>
   )
