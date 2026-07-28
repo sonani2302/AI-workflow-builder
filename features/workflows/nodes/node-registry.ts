@@ -46,6 +46,16 @@ export const nodeRegistry = {
 
 export type NodeType = keyof typeof nodeRegistry
 
+/**
+ * The node types that do something when a run reaches them, which is every
+ * type but the trigger. Read back off the registry rather than listed a second
+ * time here, so adding a node to the manifest above is all it takes for the
+ * executor registry to start demanding a handler for it.
+ */
+export type ActionNodeType = {
+  [K in NodeType]: (typeof nodeRegistry)[K]["kind"] extends "action" ? K : never
+}[NodeType]
+
 // Plain JSON only (synced through Liveblocks later). type keys into the registry;
 // kind and title are denormalized so the server can read them without the registry.
 export type StepNodeData = {

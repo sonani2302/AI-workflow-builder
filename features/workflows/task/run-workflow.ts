@@ -1,15 +1,39 @@
-import { AbortTaskRunError, logger, task } from "@trigger.dev/sdk"
+import { Stagehand } from "@browserbasehq/stagehand"
+import { AbortTaskRunError, logger, metadata, task } from "@trigger.dev/sdk"
 
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
+import {
+  NodeInputError,
+  type JsonObject,
+} from "@/features/workflows/nodes/node-contract"
+import { executorFor } from "@/features/workflows/nodes/node-executor"
 import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
 
-// Only toposort comes along at runtime — WorkflowGraph is a type import and
-// erases, which keeps the canvas' React and lucide dependencies out of the
-// task bundle.
+// WorkflowGraph is a type import and erases, so the canvas' React and lucide
+// dependencies stay out of the task bundle. executorFor is a real import, but
+// it reaches the executors without going through the registry manifest, which
+// is the module that pulls in lucide.
 
 export type RunWorkflowPayload = {
   workflowId: string
   graph: WorkflowGraph
+}
+
+/** One step's outcome, appended to run metadata as the run walks the graph. */
+export type StepReport = {
+  nodeId: string
+  type: string
+  title: string
+  status: "completed" | "failed" | "skipped"
+  output?: JsonObject
+  error?: string
+}
+
+/** Where the run has got to, replaced in run metadata on every step. */
+export type RunProgress = {
+  total: number
+  completed: number
+  current: { nodeId: string; title: string } | null
 }
 
 export const runWorkflowTask = task({
@@ -36,30 +60,158 @@ export const runWorkflowTask = task({
     const { order } = validation
     const byId = new Map(graph.nodes.map((node) => [node.id, node]))
 
+    // Set rather than left to accumulate, because metadata outlives an attempt:
+    // a retry re-walks the same graph from the top, and appending to whatever
+    // the failed attempt left behind would show every step twice.
+    metadata
+      .set("progress", {
+        total: order.length,
+        completed: 0,
+        current: null,
+      } satisfies RunProgress)
+      .set("steps", [])
+      .set("sessionUrl", null)
+
     logger.log("Starting workflow", { workflowId, steps: order.length })
 
-    const steps = order.map((id, index) => {
-      // order is toposort over these very node ids, so this cannot miss.
-      const node = byId.get(id)!
-      const { type, title, values } = node.data
+    // Opened on the first step that needs it rather than up front. A Browserbase
+    // session is billed for the time it is held, and a graph whose steps all
+    // turn out to need no browser should not pay for one.
+    let stagehand: Stagehand | null = null
 
-      // Standing in for the real work until each node type has a handler of
-      // its own. values is logged so the run shows what a step was given.
-      logger.log(`Step ${index + 1}/${order.length}: ${title}`, {
-        nodeId: id,
-        type,
-        values,
+    async function browser() {
+      if (stagehand) {
+        return stagehand
+      }
+
+      const apiKey = process.env.BROWSERBASE_API_KEY
+      const projectId = process.env.BROWSERBASE_PROJECT_ID
+
+      // Missing credentials are a deployment problem, not a transient one, so
+      // this stops the run instead of retrying into the same wall three times.
+      if (!apiKey || !projectId) {
+        throw new AbortTaskRunError(
+          "Set BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID for this environment to run browser steps."
+        )
+      }
+
+      const opened = new Stagehand({ env: "BROWSERBASE", apiKey, projectId })
+      await opened.init()
+      stagehand = opened
+
+      // The session's replay on browserbase.com, so a run that went wrong can
+      // be watched back rather than guessed at from the step reports alone.
+      metadata.set("sessionUrl", opened.browserbaseSessionURL ?? null)
+      logger.log("Opened browser session", {
+        sessionId: opened.browserbaseSessionID,
       })
 
-      return { nodeId: id, type, title }
-    })
+      return opened
+    }
 
-    logger.log("Finished workflow", { workflowId, steps: steps.length })
+    const steps: StepReport[] = []
 
-    return {
-      workflowId,
-      steps,
-      message: `Ran ${steps.length} step${steps.length === 1 ? "" : "s"}`,
+    try {
+      for (const [index, nodeId] of order.entries()) {
+        // order is toposort over these very node ids, so this cannot miss.
+        const node = byId.get(nodeId)!
+        const { type, title, values } = node.data
+
+        metadata.set("progress", {
+          total: order.length,
+          completed: index,
+          current: { nodeId, title },
+        } satisfies RunProgress)
+
+        const executor = executorFor(type)
+
+        // The trigger is on the canvas and in the order, but it marks where the
+        // run starts rather than doing work. Reported anyway so the UI's step
+        // list matches the graph the user drew.
+        if (!executor) {
+          const report: StepReport = { nodeId, type, title, status: "skipped" }
+
+          steps.push(report)
+          metadata.append("steps", report)
+          continue
+        }
+
+        logger.log(`Step ${index + 1}/${order.length}: ${title}`, {
+          nodeId,
+          type,
+          values,
+        })
+
+        try {
+          const output = await executor({ stagehand: await browser() }, values)
+          const report: StepReport = {
+            nodeId,
+            type,
+            title,
+            status: "completed",
+            output,
+          }
+
+          steps.push(report)
+          metadata.append("steps", report)
+          logger.log(`Finished ${title}`, { nodeId, output })
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "The step failed."
+
+          // Recorded before rethrowing, so the UI can say which step stopped
+          // the run rather than only that the run stopped.
+          metadata.append("steps", {
+            nodeId,
+            type,
+            title,
+            status: "failed",
+            error: message,
+          } satisfies StepReport)
+
+          // A later step reads the page an earlier one left, so carrying on
+          // past a failure would run the rest against a browser that never
+          // reached the state they were drawn to expect.
+          if (error instanceof NodeInputError) {
+            throw new AbortTaskRunError(`${title}: ${message}`)
+          }
+
+          throw error
+        }
+      }
+
+      metadata.set("progress", {
+        total: order.length,
+        completed: order.length,
+        current: null,
+      } satisfies RunProgress)
+
+      logger.log("Finished workflow", { workflowId, steps: steps.length })
+
+      const ran = steps.filter((step) => step.status === "completed").length
+
+      return {
+        workflowId,
+        steps,
+        message: `Ran ${ran} step${ran === 1 ? "" : "s"}`,
+      }
+    } finally {
+      // Closed on the way out whichever way the run ended, so a failed step
+      // does not leave a browser running until Browserbase times it out. The
+      // catch keeps a cleanup problem from replacing the error that got here.
+      //
+      // The cast is load-bearing, not clutter: browser() is the only thing that
+      // assigns stagehand, and control flow analysis does not follow an
+      // assignment made inside a nested function. It still reads the variable as
+      // null here, so the check below narrows it to never rather than to a
+      // session, and the call would not compile without this.
+      if (stagehand) {
+        await (stagehand as Stagehand)
+          .close()
+          .catch((error: unknown) =>
+            logger.warn("Could not close browser session", { error })
+          )
+      }
     }
   },
 })
