@@ -1,5 +1,10 @@
 import type { Edge, Node } from "@xyflow/react"
-import { Globe, MousePointerClick, type LucideIcon } from "lucide-react"
+import {
+  Globe,
+  MousePointerClick,
+  Pointer,
+  type LucideIcon,
+} from "lucide-react"
 
 export type StepNodeKind = "trigger" | "action"
 
@@ -59,6 +64,29 @@ export const nodeRegistry = {
     outputs: [
       { path: "url", label: "URL" },
       { path: "title", label: "Title" },
+    ],
+  },
+  act: {
+    type: "act",
+    kind: "action",
+    label: "Act",
+    icon: Pointer,
+    accent: "bg-violet-500 text-white",
+    // One field, and multi-line because what goes in it is a sentence rather
+    // than a value — "click the sign in button", and sometimes rather more
+    // than that when the page needs saying which one.
+    fields: [
+      {
+        key: "instruction",
+        label: "Instruction",
+        placeholder: "Click the sign in button",
+        multiline: true,
+      },
+    ],
+    outputs: [
+      { path: "success", label: "Success" },
+      { path: "message", label: "Message" },
+      { path: "url", label: "URL" },
     ],
   },
 } satisfies Record<string, NodeDefinition>

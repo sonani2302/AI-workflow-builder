@@ -1,3 +1,4 @@
+import { act } from "@/features/workflows/nodes/act"
 import type { NodeExecutor } from "@/features/workflows/nodes/node-contract"
 import type {
   ActionNodeType,
@@ -14,6 +15,7 @@ import { openUrl } from "@/features/workflows/nodes/open-url"
  */
 export const nodeExecutors = {
   "open-url": openUrl,
+  act,
 } satisfies Record<ActionNodeType, NodeExecutor>
 
 /**
