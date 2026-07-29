@@ -5,6 +5,7 @@ import { useRealtimeRunsWithTag } from "@trigger.dev/react-hooks"
 import type { RealtimeRun } from "@trigger.dev/core/v3"
 
 import { workflowRunsTag } from "@/features/workflows/lib/run-tag"
+import type { NodeType } from "@/features/workflows/nodes/node-registry"
 import type {
   RunStep,
   runWorkflowTask,
@@ -102,6 +103,24 @@ export function isRunLive(run: WorkflowRun) {
 }
 
 /**
+ * A step as the console reads it, rather than as the task writes it.
+ *
+ * The difference is what the console is allowed to assume. RunStep describes
+ * what a run records *today*, and there its type and title are always there. But
+ * the console reads runs that have already happened, and a stored run is only
+ * ever the shape it was written in — steps recorded before a step carried its
+ * own type and title have neither, however confidently RunStep types them.
+ *
+ * So the type is admitted as possibly unknown, and every reader has to face
+ * that. It is a real state, not a defect: the run genuinely did not record which
+ * node it was.
+ */
+export type HistoricalRunStep = Omit<RunStep, "type" | "title"> & {
+  type: NodeType | null
+  title: string
+}
+
+/**
  * One run's steps, however that run happens to be carrying them.
  *
  * Output first, then metadata. They carry the same list, but by different
@@ -110,20 +129,56 @@ export function isRunLive(run: WorkflowRun) {
  * and kept. Preferring the output means a finished run reads the same on a page
  * opened an hour later as it did live, without depending on the last flush
  * having gone out before the run ended.
+ *
+ * Normalised on the way out, and this is the place for it: everything downstream
+ * gets one shape it can rely on, instead of each panel having to know which
+ * fields a run of a given age left out.
  */
-export function runSteps(run: WorkflowRun): RunStep[] {
+export function runSteps(run: WorkflowRun): HistoricalRunStep[] {
   // The metadata side needs the cast because metadata is an open record — the
   // task writes progress and sessionUrl under there too, and none of it comes
   // back typed. The output side is the task's own return type and does not.
-  return (
+  const steps =
     run.output?.steps ?? (run.metadata?.steps as RunStep[] | undefined) ?? []
-  )
+
+  return steps.map((step) => ({
+    ...step,
+    // Both of these are asserted by RunStep and absent in practice on an old
+    // enough run, so both are read as if optional. Falling back to the node id
+    // for the title because that is the one thing every step has ever carried,
+    // and a blank row would be worse than a raw id.
+    type: step.type ?? null,
+    title: step.title ?? step.nodeId,
+  }))
+}
+
+/**
+ * The Browserbase session this run drove, or null if there is nothing to play.
+ *
+ * Output only, unlike runSteps above, which falls back to metadata so a live run
+ * has something to show. There is deliberately no such fallback here: the run
+ * knows its session id from the moment it opens the session, but Browserbase
+ * only finishes writing the recording once that session closes at the end of the
+ * run. An id read live would therefore be a real id with no replay behind it,
+ * and a player handed one would fail rather than wait. Coming in with the output
+ * means the id and the recording become available together.
+ *
+ * Null on three different runs, and a panel should treat them alike: one still
+ * going, one whose steps needed no browser, and one that ended by throwing —
+ * a run that fails returns no output at all, so its session is only reachable
+ * from the sessionUrl in metadata.
+ */
+export function runSessionId(run: WorkflowRun): string | null {
+  return run.output?.sessionId ?? null
 }
 
 /**
  * The newest run's per-node statuses, and whether it is still going.
  */
-export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
+export function useLatestRunSteps(): {
+  steps: HistoricalRunStep[]
+  isLive: boolean
+} {
   const latest = useLatestRun()
 
   return useMemo(
@@ -138,8 +193,10 @@ export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
 /** A run and what it did, which is what the console lists. */
 export type RunHistoryEntry = {
   run: WorkflowRun
-  steps: RunStep[]
+  steps: HistoricalRunStep[]
   isLive: boolean
+  /** The session to replay, once there is one — see runSessionId. */
+  sessionId: string | null
 }
 
 /**
@@ -159,7 +216,12 @@ export function useRunHistory(): RunHistoryEntry[] {
       // would be reaching into its state.
       [...runs]
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .map((run) => ({ run, steps: runSteps(run), isLive: isRunLive(run) })),
+        .map((run) => ({
+          run,
+          steps: runSteps(run),
+          isLive: isRunLive(run),
+          sessionId: runSessionId(run),
+        })),
     [runs]
   )
 }

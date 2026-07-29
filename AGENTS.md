@@ -272,3 +272,15 @@ await page2.goto("https://example2.com");
 await stagehand.act("click button", { page: page1 });
 await stagehand.extract("get title", { page: page2 });
 ```
+
+## Browserbase observability
+
+Session recordings, replays, live view, and logs come from the core Browserbase SDK
+(`@browserbasehq/sdk`) — not Stagehand. Before building any observability feature, consult
+Browserbase's observability docs:
+https://docs.browserbase.com/platform/browser/observability
+
+Session replay specifically — retrieving a session's recording as an HLS playlist — is
+documented here:
+https://docs.browserbase.com/platform/browser/observability/session-replay
+The retrieval needs the secret API key, so it must be proxied server-side.

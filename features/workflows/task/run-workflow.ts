@@ -136,6 +136,15 @@ export const runWorkflowTask = task({
     // turn out to need no browser should not pay for one.
     let stagehand: Stagehand | null = null
 
+    // The session's own id, kept aside for the return below. A replay is fetched
+    // by session id — not by the URL already published to metadata, which points
+    // at browserbase.com and is only good for opening their dashboard — so this
+    // is the one handle a player of our own can be built on.
+    //
+    // Stays null on a run whose steps all turned out to need no browser, which
+    // is a real outcome rather than a failure to record one.
+    let sessionId: string | null = null
+
     async function browser() {
       if (stagehand) {
         return stagehand
@@ -170,13 +179,12 @@ export const runWorkflowTask = task({
 
       await opened.init()
       stagehand = opened
+      sessionId = opened.browserbaseSessionID ?? null
 
       // The session's replay on browserbase.com, so a run that went wrong can
       // be watched back rather than guessed at from the step reports alone.
       metadata.set("sessionUrl", opened.browserbaseSessionURL ?? null)
-      logger.log("Opened browser session", {
-        sessionId: opened.browserbaseSessionID,
-      })
+      logger.log("Opened browser session", { sessionId })
 
       return opened
     }
@@ -309,9 +317,19 @@ export const runWorkflowTask = task({
       // Returned as well as published. A run's output is delivered once and
       // kept, so this is the finished state arriving by a route that does not
       // depend on the last flush having gone out before the run ended.
+      //
+      // The session id rides out here rather than going to metadata like the
+      // rest, and the timing is the whole reason. Browserbase finishes writing a
+      // recording after the session closes, and the session closes in the
+      // finally below — after this return is built but before the output is
+      // delivered. So an id that arrives with the output arrives at a moment
+      // when there is something to play, whereas one published mid-run would
+      // reach a panel while the recording was still being written and have it
+      // ask for a replay that does not exist yet.
       return {
         workflowId,
         steps,
+        sessionId,
         message: `Ran ${ran} step${ran === 1 ? "" : "s"}`,
       }
     } finally {

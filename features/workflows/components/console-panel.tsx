@@ -10,27 +10,35 @@ import {
 import { InspectorPanel } from "@/features/workflows/components/inspector-panel"
 import {
   LogsPanel,
-  type SelectedStep,
+  selectionKey,
+  type ConsoleSelection,
 } from "@/features/workflows/components/logs-panel"
 
 /**
  * The console under the canvas: what each run of this workflow did.
  *
- * The selected step is held here rather than in the list below, because it is
- * what the two halves of the console have in common — the list marks the row,
- * and the detail beside it reads the same step. A selection kept inside the list
- * would have to be lifted the moment anything else needed to read it.
+ * The selection is held here rather than in the list below, because it is what
+ * the two halves of the console have in common — the list marks the row, and the
+ * detail beside it reads the same row. A selection kept inside the list would
+ * have to be lifted the moment anything else needed to read it.
+ *
+ * One piece of state for both kinds of row, which is what makes "only one thing
+ * selected at a time" true by construction: selecting a run's replay is the same
+ * act as selecting a step, so it displaces whatever was selected before rather
+ * than being tracked alongside it.
  */
 export function ConsolePanel() {
-  const [selected, setSelected] = useState<SelectedStep | null>(null)
+  const [selected, setSelected] = useState<ConsoleSelection | null>(null)
 
-  function toggle(step: SelectedStep) {
-    // Clicking the selected step again clears it, so a row can be let go of
-    // without there being somewhere else to click to escape it.
+  function toggle(selection: ConsoleSelection) {
+    // Clicking the selected row again clears it, so a row can be let go of
+    // without there being somewhere else to click to escape it. Compared by key
+    // rather than field by field, so this does not have to know which kinds of
+    // selection exist or which fields name them.
     setSelected((current) =>
-      current?.runId === step.runId && current?.nodeId === step.nodeId
+      current && selectionKey(current) === selectionKey(selection)
         ? null
-        : step
+        : selection
     )
   }
 
@@ -41,7 +49,7 @@ export function ConsolePanel() {
     // ids keep each panel recognisable across the mount below.
     <ResizablePanelGroup orientation="horizontal" className="size-full">
       <ResizablePanel id="logs" minSize="12rem">
-        <LogsPanel selected={selected} onStepClick={toggle} />
+        <LogsPanel selected={selected} onSelect={toggle} />
       </ResizablePanel>
 
       {/* Handle and output panel together, only while something is selected: a

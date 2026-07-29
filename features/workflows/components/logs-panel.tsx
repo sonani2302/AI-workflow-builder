@@ -1,5 +1,6 @@
 "use client"
 
+import { Play } from "lucide-react"
 import prettyMs from "pretty-ms"
 
 import { Badge } from "@/components/ui/badge"
@@ -9,9 +10,9 @@ import { NodeIcon } from "@/features/workflows/components/node-icon"
 import {
   useRunHistory,
   useWorkflowRuns,
+  type HistoricalRunStep,
   type RunHistoryEntry,
 } from "@/features/workflows/components/workflow-runs-provider"
-import type { RunStep } from "@/features/workflows/task/run-workflow"
 
 // Every run of this workflow, each with its steps under it. Reads the canvas'
 // shared subscription rather than opening one of its own, so the console and the
@@ -22,12 +23,54 @@ import type { RunStep } from "@/features/workflows/task/run-workflow"
  * node — the same node has a step in every run of the workflow, so a node id
  * alone would select one row in each of them.
  */
-export type SelectedStep = { runId: string; nodeId: string }
+export type SelectedStep = { kind: "step"; runId: string; nodeId: string }
+
+/**
+ * A run's recording, which is the one row in this list that stands for a whole
+ * run rather than a step of it — so it is named by the run alone, with no node.
+ */
+export type SelectedReplay = { kind: "replay"; runId: string }
+
+/**
+ * Whatever the console is currently showing in its output pane.
+ *
+ * A union rather than a step with an optional flag, because the two are read
+ * differently at the other end: one is looked up among a run's steps, the other
+ * is the run's session id. Making them separate shapes means the panel cannot
+ * reach for a node id that a replay does not have.
+ */
+export type ConsoleSelection = SelectedStep | SelectedReplay
+
+/**
+ * One string that names a selection, whichever kind it is.
+ *
+ * Comparing selections is the only thing anything needs to do with them — is
+ * this row the selected one, and does clicking it mean deselect — and a key does
+ * that for both kinds without either caller having to branch on the kind first.
+ * The prefix is what keeps the two namespaces apart, so a run's replay can never
+ * collide with one of its steps.
+ */
+export function selectionKey(selection: ConsoleSelection) {
+  return selection.kind === "step"
+    ? `step:${selection.runId}:${selection.nodeId}`
+    : `replay:${selection.runId}`
+}
 
 /** Whether these two name the same row. */
-function isSameStep(a: SelectedStep | null, b: SelectedStep) {
-  return a?.runId === b.runId && a?.nodeId === b.nodeId
+function isSameSelection(a: ConsoleSelection | null, b: ConsoleSelection) {
+  return a !== null && selectionKey(a) === selectionKey(b)
 }
+
+/**
+ * The shared look of a selectable row in this list.
+ *
+ * Held as one string rather than written out per row, because the replay row is
+ * meant to read as a peer of the step rows — same height, same hover, same
+ * selected state — and two copies of that would drift apart the first time one
+ * of them was adjusted.
+ */
+const ROW_CLASS =
+  "flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
 
 // One step: the node's own icon and title, and how long it took.
 function StepRow({
@@ -36,7 +79,7 @@ function StepRow({
   isSelected,
   onClick,
 }: {
-  step: RunStep
+  step: HistoricalRunStep
   /** Whether the run this step belongs to is still going. */
   isLive: boolean
   isSelected: boolean
@@ -62,7 +105,7 @@ function StepRow({
       onClick={onClick}
       aria-pressed={isSelected}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground",
+        ROW_CLASS,
         isSelected && "bg-accent text-accent-foreground",
         neverRan && "opacity-50"
       )}
@@ -94,17 +137,60 @@ function StepRow({
   )
 }
 
+// The run's recording, sitting at the end of its steps.
+function ReplayRow({
+  isSelected,
+  onClick,
+}: {
+  isSelected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={isSelected}
+      className={cn(ROW_CLASS, isSelected && "bg-accent text-accent-foreground")}
+    >
+      {/* The chip is shaped like a step's, so the row lines up with the ones
+          above it, but deliberately muted rather than given an accent colour:
+          every colour in this list belongs to a node, and this row is not one.
+          It is the run's own recording, which is why it sits at the end rather
+          than among the steps in the order they ran. */}
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <Play className="size-3.5" />
+      </span>
+
+      <span className="min-w-0 flex-1 truncate font-medium">Replay</span>
+
+      {/* Nothing on the right. A step earns a duration by being one thing that
+          took a measurable time; the recording spans the whole run, and the run
+          header two lines up is already showing that. */}
+    </button>
+  )
+}
+
 // One run: a header saying how it went, then its steps.
 function RunGroup({
   entry,
   selected,
-  onStepClick,
+  onSelect,
 }: {
   entry: RunHistoryEntry
-  selected: SelectedStep | null
-  onStepClick: (step: SelectedStep) => void
+  selected: ConsoleSelection | null
+  onSelect: (selection: ConsoleSelection) => void
 }) {
-  const { run, steps, isLive } = entry
+  const { run, steps, isLive, sessionId } = entry
+
+  // Both halves of the condition are checked, though the first nearly implies
+  // the second: a session id only ever arrives with the run's output, and a run
+  // that has not finished has no output yet. Saying "and it has finished" here
+  // anyway keeps the rule where the row is built, rather than resting on where
+  // the id happens to be read from today.
+  //
+  // A run with no id at all is the ordinary case for a graph whose steps needed
+  // no browser, and for one that ended by throwing — neither gets a row.
+  const hasReplay = Boolean(sessionId) && !isLive
 
   return (
     <li className="flex flex-col gap-0.5">
@@ -139,7 +225,7 @@ function RunGroup({
         ) : null}
       </div>
 
-      {steps.length === 0 ? (
+      {steps.length === 0 && !hasReplay ? (
         // The gap between a run being queued and its first metadata arriving.
         <p className="px-1.5 py-1 text-xs text-muted-foreground">
           No steps yet
@@ -147,19 +233,37 @@ function RunGroup({
       ) : (
         <ul className="flex flex-col">
           {steps.map((step) => {
-            const id = { runId: run.id, nodeId: step.nodeId }
+            const id: ConsoleSelection = {
+              kind: "step",
+              runId: run.id,
+              nodeId: step.nodeId,
+            }
 
             return (
               <li key={step.nodeId}>
                 <StepRow
                   step={step}
                   isLive={isLive}
-                  isSelected={isSameStep(selected, id)}
-                  onClick={() => onStepClick(id)}
+                  isSelected={isSameSelection(selected, id)}
+                  onClick={() => onSelect(id)}
                 />
               </li>
             )
           })}
+
+          {/* Inside the same list as the steps rather than after it, so it is
+              one of the run's rows and not a second thing under them. */}
+          {hasReplay ? (
+            <li>
+              <ReplayRow
+                isSelected={isSameSelection(selected, {
+                  kind: "replay",
+                  runId: run.id,
+                })}
+                onClick={() => onSelect({ kind: "replay", runId: run.id })}
+              />
+            </li>
+          ) : null}
         </ul>
       )}
     </li>
@@ -174,10 +278,10 @@ function RunGroup({
  */
 export function LogsPanel({
   selected,
-  onStepClick,
+  onSelect,
 }: {
-  selected: SelectedStep | null
-  onStepClick: (step: SelectedStep) => void
+  selected: ConsoleSelection | null
+  onSelect: (selection: ConsoleSelection) => void
 }) {
   const { error } = useWorkflowRuns()
   const history = useRunHistory()
@@ -209,7 +313,7 @@ export function LogsPanel({
                 key={entry.run.id}
                 entry={entry}
                 selected={selected}
-                onStepClick={onStepClick}
+                onSelect={onSelect}
               />
             ))}
           </ul>

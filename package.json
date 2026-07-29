@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@browserbasehq/sdk": "^2.16.0",
     "@browserbasehq/stagehand": "^3.7.1",
     "@clerk/nextjs": "^7.6.0",
     "@clerk/ui": "^1.26.0",
@@ -29,6 +30,7 @@
     "@liveblocks/react-flow": "^3.23.0",
     "@liveblocks/react-ui": "^3.23.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@sentry/nextjs": "^10.69.0",
     "@shadcn/react": "^0.2.1",
     "@trigger.dev/react-hooks": "4.5.7",
     "@trigger.dev/sdk": "4.5.7",
@@ -39,6 +41,7 @@
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
+    "hls.js": "^1.6.16",
     "input-otp": "^1.4.2",
     "lucide-react": "^1.26.0",
     "next": "16.2.6",

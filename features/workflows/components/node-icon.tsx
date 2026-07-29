@@ -1,5 +1,7 @@
 "use client"
 
+import { CircleDashed } from "lucide-react"
+
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 import {
@@ -20,19 +22,31 @@ export function NodeIcon({
   running,
   className,
 }: {
-  type: NodeType
+  /**
+   * Null for a step whose type is not known — see the console's read of a run's
+   * steps. The canvas always has a real type, and passes one.
+   */
+  type: NodeType | null
   /** Swaps the icon for a spinner, for a step that is working right now. */
   running?: boolean
   className?: string
 }) {
-  const def = nodeRegistry[type]
-  const Icon = def.icon
+  // Looked up rather than indexed blind, because a caller can hold a type this
+  // build has never heard of: a run recorded months ago named the node types of
+  // the graph it walked, and the registry has moved on since. Reading .icon off
+  // the miss is what used to take the whole console down with it.
+  const def = type ? nodeRegistry[type] : undefined
+
+  // Deliberately colourless. An accent is how this chip says which node it is,
+  // so guessing one for a step nobody can identify would be the one wrong
+  // answer; a dashed outline says "a step, and that is all we know".
+  const Icon = def?.icon ?? CircleDashed
 
   return (
     <span
       className={cn(
         "flex size-6 shrink-0 items-center justify-center rounded-md",
-        def.accent,
+        def?.accent ?? "bg-muted text-muted-foreground",
         className
       )}
     >
