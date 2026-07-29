@@ -47,3 +47,6 @@ browser-automation-prompt-playbook.html
 
 # skills CLI staging dir; .claude/skills holds the committed copies
 .agents/
+
+# Dev server output from a detached npm run dev.
+.next-dev.log

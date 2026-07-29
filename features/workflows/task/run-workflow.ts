@@ -75,8 +75,18 @@ export const runWorkflowTask = task({
 
     // steps is mutated in place and re-published whole on every change. Held as
     // its own function so no transition can quietly forget to send it.
+    //
+    // A fresh copy every time, and that is the whole reason this works: setting
+    // a key drops the write when the new metadata deep-equals what is already
+    // stored, and the stored value is this very array. Mutating it and handing
+    // the same reference back makes the two sides of that comparison the same
+    // object, so every change after the first would be discarded and the canvas
+    // would sit on "pending" for the length of the run.
     function publishSteps() {
-      metadata.set("steps", steps)
+      metadata.set(
+        "steps",
+        steps.map((step) => ({ ...step }))
+      )
     }
 
     metadata

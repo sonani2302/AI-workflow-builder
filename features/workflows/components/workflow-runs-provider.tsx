@@ -55,7 +55,7 @@ export function WorkflowRunsProvider({
   return <WorkflowRunsContext value={value}>{children}</WorkflowRunsContext>
 }
 
-function useWorkflowRuns() {
+export function useWorkflowRuns() {
   const value = useContext(WorkflowRunsContext)
 
   if (!value) {
@@ -65,6 +65,38 @@ function useWorkflowRuns() {
   }
 
   return value
+}
+
+/**
+ * The newest run of this workflow, or null before one has ever been started.
+ *
+ * Everything that shows a run reads it from here rather than from a run id of
+ * its own, so the badge in the sidebar and the nodes on the canvas can never
+ * end up describing two different runs — which is exactly what happens when a
+ * second run is started while the first is still going.
+ */
+export function useLatestRun(): WorkflowRun | null {
+  const { runs } = useWorkflowRuns()
+
+  return useMemo(
+    () =>
+      // Newest by createdAt rather than by position: the hook makes no promise
+      // about the order runs arrive in, and a run updating mid-list could move
+      // it.
+      runs.reduce<WorkflowRun | null>(
+        (newest, run) =>
+          !newest || run.createdAt > newest.createdAt ? run : newest,
+        null
+      ),
+    [runs]
+  )
+}
+
+/** Whether a run has not finished yet. */
+export function isRunLive(run: WorkflowRun) {
+  // The run's own booleans rather than a list of status strings to keep in step
+  // with the ones Trigger.dev adds.
+  return run.isQueued || run.isExecuting
 }
 
 /**
@@ -78,17 +110,9 @@ function useWorkflowRuns() {
  * having gone out before the run ended.
  */
 export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
-  const { runs } = useWorkflowRuns()
+  const latest = useLatestRun()
 
   return useMemo(() => {
-    // Newest by createdAt rather than by position: the hook makes no promise
-    // about the order runs arrive in, and a run updating mid-list could move it.
-    const latest = runs.reduce<WorkflowRun | null>(
-      (newest, run) =>
-        !newest || run.createdAt > newest.createdAt ? run : newest,
-      null
-    )
-
     if (!latest) {
       return { steps: [], isLive: false }
     }
@@ -96,11 +120,6 @@ export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
     const steps =
       latest.output?.steps ?? (latest.metadata?.steps as RunStep[] | undefined)
 
-    return {
-      steps: steps ?? [],
-      // The run's own booleans rather than a list of status strings to keep in
-      // step with the ones Trigger.dev adds.
-      isLive: latest.isQueued || latest.isExecuting,
-    }
-  }, [runs])
+    return { steps: steps ?? [], isLive: isRunLive(latest) }
+  }, [latest])
 }

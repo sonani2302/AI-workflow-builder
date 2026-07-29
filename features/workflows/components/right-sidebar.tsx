@@ -472,10 +472,6 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
 function RunButton({ workflowId }: { workflowId: string }) {
   const { getNodes, getEdges } = useReactFlow<StepNodeType>()
   const [isPending, startTransition] = useTransition()
-  const [handle, setHandle] = useState<{
-    runId: string
-    accessToken: string
-  } | null>(null)
 
   const handleRun = () => {
     // The store is the source of truth, not the row: the canvas lives in
@@ -505,7 +501,9 @@ function RunButton({ workflowId }: { workflowId: string }) {
     // The pending flag also guards against a double click queueing two runs.
     startTransition(async () => {
       try {
-        setHandle(await runWorkflowAction(workflowId, graph))
+        // Nothing to keep from the handle: the run is tagged, and the canvas'
+        // shared subscription picks it up on its own.
+        await runWorkflowAction(workflowId, graph)
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not start the run"
@@ -526,14 +524,9 @@ function RunButton({ workflowId }: { workflowId: string }) {
         Run
       </Button>
 
-      {/* Keyed by run id so each new run remounts with a fresh subscription. */}
-      {handle ? (
-        <RunStatus
-          key={handle.runId}
-          runId={handle.runId}
-          accessToken={handle.accessToken}
-        />
-      ) : null}
+      {/* Reads the shared subscription, so it needs nothing from the click that
+          started the run and renders nothing until there is one to report. */}
+      <RunStatus />
     </div>
   )
 }

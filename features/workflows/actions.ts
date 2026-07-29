@@ -59,9 +59,11 @@ export async function runWorkflowAction(
     { tags: [workflowRunsTag(workflowId)] }
   )
 
-  // The handle's token is already scoped to read this one run, which is all a
-  // realtime subscription needs. It expires after 15 minutes.
-  return { runId: handle.id, accessToken: handle.publicAccessToken }
+  // The id alone. The handle also carries a token scoped to read this one run,
+  // but nothing subscribes that way any more: the page mints one token for the
+  // workflow's tag, and everything showing a run reads that single
+  // subscription — so the badge and the canvas cannot end up on different runs.
+  return { runId: handle.id }
 }
 
 /**
