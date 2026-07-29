@@ -12,7 +12,7 @@ export type OpenUrlResult = {
   /** Where the page settled, which redirects can move away from the input. */
   url: string
   title: string
-  status: number | null
+  status: number
 }
 
 // Requires "://" rather than just a colon. A bare "localhost:3000" parses as a
@@ -48,6 +48,29 @@ function parseUrl(input: string) {
     )
   }
 
+  // A host of one label is almost always a typo reaching this far: new URL()
+  // accepts anything shaped like a name, so "1234" and "indvfbvdfgbgdfb" parse
+  // as happily as a real address. Turning them away here rather than at
+  // navigation is what makes a mistyped field fail at once, instead of paying
+  // for a browser session to go and look.
+  //
+  // The cost is a single-label intranet name — "http://wiki" — which is legal
+  // and is refused. localhost and address literals are the exceptions worth
+  // keeping, since both are real things to point a step at.
+  const { hostname } = url
+
+  const named =
+    hostname.includes(".") ||
+    hostname.startsWith("[") ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost")
+
+  if (!named) {
+    throw new NodeInputError(
+      `"${input}" is not a website address Open URL can reach.`
+    )
+  }
+
   return url.toString()
 }
 
@@ -68,13 +91,22 @@ export async function openUrl(
 
   const response = await page.goto(url, { waitUntil: "domcontentloaded" })
 
-  // A 4xx or 5xx is reported rather than thrown on. The step did what it was
-  // asked — it opened the address — and whether that page is usable is for the
-  // steps after it to judge. status is null when the navigation served no
-  // response of its own, as a same-document hop does.
+  // No response means nothing was served. A navigation that cannot be made at
+  // all — a host that does not resolve, a connection refused — does not throw
+  // here: the browser shows its own error page, that page is a document, and so
+  // domcontentloaded fires and goto returns with nothing behind it. Left alone
+  // this reads as a step that worked, and the run goes on to the next one with
+  // the browser sitting on an error page.
+  if (!response) {
+    throw new Error(`${url} could not be reached.`)
+  }
+
+  // A 4xx or 5xx is reported rather than thrown on. Something answered, and
+  // whether that page is usable is for the steps after it to judge — which is
+  // not the same as never having arrived.
   return {
     url: page.url(),
     title: await page.title(),
-    status: response?.status() ?? null,
+    status: response.status(),
   }
 }
