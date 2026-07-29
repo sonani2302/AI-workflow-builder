@@ -1,6 +1,7 @@
 "use client"
 
 import { ReactNode } from "react"
+import * as Sentry from "@sentry/nextjs"
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -31,6 +32,17 @@ export function Room({
         })
 
         if (!response.ok) {
+          // The failure mode this hides is a mild one — cursors and avatars
+          // stay anonymous while the canvas itself works — which is precisely
+          // why it needs saying: nothing about the page looks broken, so
+          // without this the only report would be someone mentioning that
+          // names stopped appearing.
+          Sentry.logger.warn("Could not resolve room members", {
+            room_id: roomId,
+            status: response.status,
+            requested_count: userIds.length,
+          })
+
           // Liveblocks expands this into one undefined per requested id.
           return undefined
         }

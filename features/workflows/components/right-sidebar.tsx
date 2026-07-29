@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react"
 import { Lock, MoreHorizontal, Play, Trash2 } from "lucide-react"
+import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
 import {
   useNodesData,
@@ -419,6 +420,18 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
         await deleteWorkflowAction(workflowId)
       } catch (error) {
         setConfirmOpen(false)
+
+        // The server already has this one: the action's throw went through
+        // onRequestError with the organization and the workflow id attached.
+        // This line only records that the dialog was the surface it surfaced
+        // on, so a delete that fails for everyone is distinguishable from one
+        // person's stale tab.
+        Sentry.logger.warn("Delete workflow failed in the client", {
+          surface: "actions-menu",
+          workflow_id: workflowId,
+          reason: error instanceof Error ? error.message : "unknown",
+        })
+
         toast.error(
           error instanceof Error
             ? error.message
@@ -519,6 +532,18 @@ function RunButton({ workflowId }: { workflowId: string }) {
         // shared subscription picks it up on its own.
         await runWorkflowAction(workflowId, graph)
       } catch (error) {
+        // As with delete, the action's own throw is already an issue. The graph
+        // size is what this adds: a run that fails to queue only on large
+        // canvases is a payload limit rather than a validation problem, and
+        // that is not visible from the server's side of the call.
+        Sentry.logger.warn("Run failed to queue from the client", {
+          surface: "run-button",
+          workflow_id: workflowId,
+          node_count: graph.nodes.length,
+          edge_count: graph.edges.length,
+          reason: error instanceof Error ? error.message : "unknown",
+        })
+
         toast.error(
           error instanceof Error ? error.message : "Could not start the run"
         )

@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { SentryUser } from "@/components/sentry-user"
 import {
   SidebarInset,
   SidebarProvider,
@@ -22,14 +24,27 @@ export default async function DashboardLayout({
   // Workflows belong to an organization, so a member without an active one has
   // nothing to read or create. /choose-organization sits outside this layout,
   // so this cannot loop.
-  const { orgId } = await auth()
+  const { userId, orgId } = await auth()
 
   if (!orgId) {
     redirect("/choose-organization")
   }
 
+  // Every route under this layout renders through here, so this is the one
+  // place identity can be attached once rather than at each call site. The
+  // isolation scope is per-request, which is what makes this safe on a server
+  // handling several organizations at once — the global scope would let one
+  // request's org leak onto another's events.
+  //
+  // Id only, no email or name: Clerk holds those, and an issue does not need
+  // them to be actionable.
+  Sentry.setUser({ id: userId ?? undefined })
+  Sentry.getIsolationScope().setAttributes({ org_id: orgId })
+
   return (
     <TooltipProvider>
+      {/* The browser half of the identity set above. Renders nothing. */}
+      <SentryUser />
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>

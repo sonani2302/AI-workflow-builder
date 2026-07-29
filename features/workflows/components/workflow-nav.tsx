@@ -4,6 +4,7 @@ import { useTransition } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Lock, Plus, Workflow as WorkflowIcon } from "lucide-react"
+import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
 
 import type { Workflow } from "@/lib/db/schema"
@@ -63,6 +64,21 @@ export function WorkflowNav({
         // seconds ago can be pro here and not yet pro there. A message beats
         // the error boundary that an uncaught throw would raise over the
         // sidebar.
+        //
+        // Logged rather than captured, and the distinction is the point: the
+        // throw came out of a server action, so onRequestError already made an
+        // issue of it with the server's context attached. A second capture here
+        // would be the same fault twice, once with far less to go on. What this
+        // adds is the half the server cannot see — that the click was made
+        // while the sidebar believed the organization was pro, which is the
+        // signal that the two disagreed.
+        Sentry.logger.warn("Create workflow failed in the client", {
+          surface: "sidebar",
+          client_thinks_pro: isPro,
+          plan_loaded: isLoaded,
+          reason: error instanceof Error ? error.message : "unknown",
+        })
+
         toast.error(
           error instanceof Error
             ? error.message

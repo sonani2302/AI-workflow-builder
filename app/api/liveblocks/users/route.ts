@@ -1,4 +1,5 @@
 import { auth, clerkClient } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 
 // Clerk caps both the user id and organization membership filters at 100.
 const MAX_USER_IDS = 100
@@ -29,6 +30,17 @@ export async function POST(request: Request) {
     userId.length > MAX_USER_IDS ||
     userId.some((id) => typeof id !== "string")
   ) {
+    // Liveblocks builds this body itself, so a rejected shape means the client
+    // and this endpoint disagree about it — which shows up in the UI only as
+    // cursors that never get names. Worth saying out loud rather than letting a
+    // 400 disappear into the client's own error handling.
+    Sentry.logger.warn("Rejected malformed user-resolution request", {
+      route: "liveblocks-users",
+      org_id: orgId,
+      received_type: Array.isArray(userId) ? "array" : typeof userId,
+      received_count: Array.isArray(userId) ? userId.length : 0,
+    })
+
     return new Response("Bad Request", { status: 400 })
   }
 
@@ -69,6 +81,22 @@ export async function POST(request: Request) {
       avatar: user.imageUrl,
     }
   })
+
+  // One wide line, and only when something did not resolve. An unresolved id is
+  // the interesting case: it means a cursor in the room belongs to someone this
+  // organization cannot see — a member who has since left, or a token from
+  // another organization reaching a room it should not be in. Counted rather
+  // than listed, so no ids leave the request.
+  const unresolved = users.filter((user) => user == null).length
+
+  if (unresolved > 0) {
+    Sentry.logger.warn("Some room members could not be resolved", {
+      route: "liveblocks-users",
+      org_id: orgId,
+      requested_count: userId.length,
+      unresolved_count: unresolved,
+    })
+  }
 
   return Response.json(users)
 }

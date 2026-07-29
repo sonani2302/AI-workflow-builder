@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 import { tasks } from "@trigger.dev/sdk"
 
 import { getLiveblocks } from "@/lib/liveblocks"
@@ -32,12 +33,29 @@ export async function runWorkflowAction(
     throw new Error("No active organization")
   }
 
+  // Isolation scope, not global: it is unique per request, so two people
+  // starting runs at the same time cannot end up labelled with each other's
+  // organization. Set once here and every log below it carries these.
+  Sentry.getIsolationScope().setAttributes({
+    action: "runWorkflowAction",
+    org_id: orgId,
+    workflow_id: workflowId,
+    node_count: graph.nodes.length,
+    edge_count: graph.edges.length,
+  })
+
   // Both the id and the graph arrive from the browser, so neither is taken on
   // trust: this confirms the workflow is this organization's before spending a
   // run on it.
   const workflow = await getWorkflow(orgId, workflowId)
 
   if (!workflow) {
+    // Warn rather than error: reaching this means an id that is not this
+    // organization's, which is the check doing its job. Worth a record because
+    // the canvas only asks for ids it was given, so a burst of these is either
+    // a stale tab or someone trying ids.
+    Sentry.logger.warn("Run rejected: workflow not in organization")
+
     throw new Error("Workflow not found")
   }
 
@@ -47,6 +65,15 @@ export async function runWorkflowAction(
   const validation = validateGraph(graph)
 
   if (!validation.ok) {
+    // The editor checks the same graph before it gets here, so anything landing
+    // in this branch means the two disagreed — a bug in one of them, or a tab
+    // old enough to predate a rule. That is what makes the issue codes worth
+    // recording rather than just the message the caller sees.
+    Sentry.logger.warn("Run rejected: graph did not validate", {
+      issue_count: validation.issues.length,
+      issue_codes: validation.issues.map((issue) => issue.code).join(","),
+    })
+
     throw new Error(validation.issues[0].message)
   }
 
@@ -58,6 +85,12 @@ export async function runWorkflowAction(
     { workflowId, graph },
     { tags: [workflowRunsTag(workflowId)] }
   )
+
+  // The handoff to Trigger.dev, and the last thing this side of the boundary
+  // knows about the run. The task itself reports into Trigger.dev's own run
+  // log, so this line is what connects a run id there to the request that
+  // queued it here — until the two are wired together.
+  Sentry.logger.info("Workflow run queued", { run_id: handle.id })
 
   // The id alone. The handle also carries a token scoped to read this one run,
   // but nothing subscribes that way any more: the page mints one token for the
@@ -77,11 +110,19 @@ export async function deleteWorkflowAction(workflowId: string) {
     throw new Error("No active organization")
   }
 
+  Sentry.getIsolationScope().setAttributes({
+    action: "deleteWorkflowAction",
+    org_id: orgId,
+    workflow_id: workflowId,
+  })
+
   // Scoped to the organization, and the result checked, so an id guessed from
   // outside the org removes nothing — and never reaches the room below.
   const deleted = await deleteWorkflow(orgId, workflowId)
 
   if (!deleted) {
+    Sentry.logger.warn("Delete rejected: workflow not in organization")
+
     throw new Error("Workflow not found")
   }
 
@@ -96,6 +137,32 @@ export async function deleteWorkflowAction(workflowId: string) {
   try {
     await getLiveblocks().deleteRoom(workflowId)
   } catch (error) {
+    // The one place in this file that has to report an error itself. Everywhere
+    // else the throw reaches onRequestError; here the whole point is that the
+    // action carries on and redirects, so Next.js never sees this and without
+    // the capture the orphaned room would be invisible.
+    //
+    // A workflow that was never opened has no room and lands here as a 404,
+    // which is not worth an issue — so that case is separated out and logged
+    // instead of captured.
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? Number((error as { status: unknown }).status)
+        : undefined
+
+    if (status === 404) {
+      Sentry.logger.info("No Liveblocks room to delete", {
+        reason: "workflow was never opened",
+      })
+    } else {
+      Sentry.captureException(error, {
+        tags: { surface: "liveblocks", operation: "deleteRoom" },
+        // The row is already gone, so this is a storage leak rather than a
+        // failed delete — nothing the caller could retry.
+        extra: { consequence: "orphaned room, workflow row already deleted" },
+      })
+    }
+
     console.error(`Could not delete Liveblocks room ${workflowId}`, error)
   }
 

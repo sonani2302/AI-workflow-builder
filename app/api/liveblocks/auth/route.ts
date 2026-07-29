@@ -1,4 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 
 import { getLiveblocks } from "@/lib/liveblocks"
 
@@ -23,6 +24,11 @@ export async function POST() {
     return new Response("Unauthorized", { status: 401 })
   }
 
+  Sentry.getIsolationScope().setAttributes({
+    route: "liveblocks-auth",
+    org_id: orgId,
+  })
+
   const user = await currentUser()
 
   const { status, body } = await getLiveblocks().identifyUser(
@@ -46,6 +52,16 @@ export async function POST() {
       },
     }
   )
+
+  // Liveblocks answers with a status rather than throwing, so a refusal here
+  // would otherwise be silent: the canvas would simply never connect, with
+  // nothing on the server saying why. Only the failures are logged — a success
+  // happens on every page open and every reconnect.
+  if (status >= 400) {
+    Sentry.logger.error("Liveblocks refused to identify user", {
+      liveblocks_status: status,
+    })
+  }
 
   return new Response(body, { status })
 }
