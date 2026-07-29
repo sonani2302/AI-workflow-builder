@@ -6,9 +6,15 @@ import {
   type RunOutputs,
 } from "@/features/workflows/lib/interpolate"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
-import { NodeInputError } from "@/features/workflows/nodes/node-contract"
+import {
+  NodeInputError,
+  type JsonObject,
+} from "@/features/workflows/nodes/node-contract"
 import { executorFor } from "@/features/workflows/nodes/node-executor"
-import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
+import type {
+  NodeType,
+  WorkflowGraph,
+} from "@/features/workflows/nodes/node-registry"
 
 // WorkflowGraph is a type import and erases, so the canvas' React and lucide
 // dependencies stay out of the task bundle. executorFor is a real import, but
@@ -21,13 +27,31 @@ export type RunWorkflowPayload = {
 }
 
 /**
- * One node's live status. The whole list is published to run metadata under
- * "steps" and replaced on every change, so the canvas can colour a node by
- * looking its own id up rather than following the run's log.
+ * One node's live status, and what it did once it has been there. The whole
+ * list is published to run metadata under "steps" and replaced on every change,
+ * so the canvas can colour a node by looking its own id up rather than
+ * following the run's log.
+ *
+ * A step carries its own type and title rather than only the id it can be
+ * looked up by, because the console reads a run rather than the canvas: a run
+ * from an hour ago describes the graph as it was then, and the node it named
+ * may since have been retitled or deleted off the canvas altogether.
  */
 export type RunStep = {
   nodeId: string
+  /** Keys into the node registry, which is where its icon comes from. */
+  type: NodeType
+  title: string
   status: "pending" | "running" | "done" | "failed"
+  /**
+   * How long the step's own work took, in milliseconds. Absent until it
+   * finishes, and absent on the trigger, which does no work to time.
+   */
+  durationMs?: number
+  /** What the executor returned, on a step that got that far. */
+  output?: JsonObject
+  /** Why it stopped, on a step that threw. */
+  error?: string
 }
 
 /** Where the run has got to, replaced in run metadata on every step. */
@@ -68,10 +92,12 @@ export const runWorkflowTask = task({
     // Rebuilt rather than added to, because metadata outlives an attempt: a
     // retry re-walks the same graph from the top, and a list carried over from
     // the failed attempt would still be holding its stale statuses.
-    const steps: RunStep[] = order.map((nodeId) => ({
-      nodeId,
-      status: "pending",
-    }))
+    const steps: RunStep[] = order.map((nodeId) => {
+      // order is toposort over these very node ids, so this cannot miss.
+      const { type, title } = byId.get(nodeId)!.data
+
+      return { nodeId, type, title, status: "pending" }
+    })
 
     // steps is mutated in place and re-published whole on every change. Held as
     // its own function so no transition can quietly forget to send it.
@@ -82,6 +108,10 @@ export const runWorkflowTask = task({
     // the same reference back makes the two sides of that comparison the same
     // object, so every change after the first would be discarded and the canvas
     // would sit on "pending" for the length of the run.
+    //
+    // A shallow copy is enough even though a step now carries an output object:
+    // an output is set once, from what the executor returned, and never touched
+    // again, so there is no later change for the shared reference to hide.
     function publishSteps() {
       metadata.set(
         "steps",
@@ -213,6 +243,13 @@ export const runWorkflowTask = task({
         // would go out already finished and the canvas would never see it run.
         await metadata.flush()
 
+        // After the flush above rather than before it, so what gets timed is
+        // the step's own work and not the wait on a metadata round trip that
+        // has nothing to do with it. Opening the browser session is inside the
+        // window on purpose: the first step really does wait for that, and
+        // hiding it would leave a step reported as fast that took ten seconds.
+        const startedAt = Date.now()
+
         try {
           // browser is passed rather than called, so a step that needs no page
           // opens no session — see the note on it above. The run id rather than
@@ -227,6 +264,8 @@ export const runWorkflowTask = task({
           ran++
 
           steps[index].status = "done"
+          steps[index].durationMs = Date.now() - startedAt
+          steps[index].output = output
           publishSteps()
 
           logger.log(`Finished ${title}`, { nodeId, output })
@@ -235,6 +274,11 @@ export const runWorkflowTask = task({
             error instanceof Error ? error.message : "The step failed."
 
           steps[index].status = "failed"
+          steps[index].durationMs = Date.now() - startedAt
+          // The message rather than the error itself: what reaches the console
+          // has been through JSON on the way out, and an Error serializes to an
+          // empty object.
+          steps[index].error = message
           publishSteps()
 
           // Forced out before the throw below, which is the last thing that

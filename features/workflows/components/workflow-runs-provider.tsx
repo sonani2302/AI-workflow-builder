@@ -14,7 +14,9 @@ import type {
 // reads the same live state. Subscribing per node would open a socket each and
 // have them disagree while the updates landed at different moments.
 
-type WorkflowRun = RealtimeRun<typeof runWorkflowTask>
+// Exported because the console shows a run's own details — when it started, its
+// status, how long it took — and a component taking one needs to say so.
+export type WorkflowRun = RealtimeRun<typeof runWorkflowTask>
 
 type WorkflowRunsValue = {
   runs: WorkflowRun[]
@@ -100,7 +102,7 @@ export function isRunLive(run: WorkflowRun) {
 }
 
 /**
- * The newest run's per-node statuses, and whether it is still going.
+ * One run's steps, however that run happens to be carrying them.
  *
  * Output first, then metadata. They carry the same list, but by different
  * routes: metadata is streamed as the run walks the graph and is the only
@@ -109,17 +111,55 @@ export function isRunLive(run: WorkflowRun) {
  * opened an hour later as it did live, without depending on the last flush
  * having gone out before the run ended.
  */
+export function runSteps(run: WorkflowRun): RunStep[] {
+  // The metadata side needs the cast because metadata is an open record — the
+  // task writes progress and sessionUrl under there too, and none of it comes
+  // back typed. The output side is the task's own return type and does not.
+  return (
+    run.output?.steps ?? (run.metadata?.steps as RunStep[] | undefined) ?? []
+  )
+}
+
+/**
+ * The newest run's per-node statuses, and whether it is still going.
+ */
 export function useLatestRunSteps(): { steps: RunStep[]; isLive: boolean } {
   const latest = useLatestRun()
 
-  return useMemo(() => {
-    if (!latest) {
-      return { steps: [], isLive: false }
-    }
+  return useMemo(
+    () =>
+      latest
+        ? { steps: runSteps(latest), isLive: isRunLive(latest) }
+        : { steps: [], isLive: false },
+    [latest]
+  )
+}
 
-    const steps =
-      latest.output?.steps ?? (latest.metadata?.steps as RunStep[] | undefined)
+/** A run and what it did, which is what the console lists. */
+export type RunHistoryEntry = {
+  run: WorkflowRun
+  steps: RunStep[]
+  isLive: boolean
+}
 
-    return { steps: steps ?? [], isLive: isRunLive(latest) }
-  }, [latest])
+/**
+ * Every run of this workflow, newest first, each with its steps.
+ *
+ * Sorted here rather than in the panel for the same reason useLatestRun picks
+ * by createdAt: the hook makes no promise about the order runs arrive in, so a
+ * list left as it comes would reshuffle itself as a live run updates. Newest
+ * first because that is the run someone opening the console is looking for.
+ */
+export function useRunHistory(): RunHistoryEntry[] {
+  const { runs } = useWorkflowRuns()
+
+  return useMemo(
+    () =>
+      // A copy before sorting: runs belongs to the hook, and sorting in place
+      // would be reaching into its state.
+      [...runs]
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .map((run) => ({ run, steps: runSteps(run), isLive: isRunLive(run) })),
+    [runs]
+  )
 }

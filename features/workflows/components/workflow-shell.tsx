@@ -4,6 +4,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { Canvas } from "@/features/workflows/components/canvas"
+import { ConsolePanel } from "@/features/workflows/components/console-panel"
 import { RightSidebar } from "@/features/workflows/components/right-sidebar"
 
 /**
@@ -22,10 +23,11 @@ export function WorkflowShell({ workflowId }: { workflowId: string }) {
 
           <ResizableHandle withHandle />
 
-          <ResizablePanel defaultSize="8rem" minSize="6rem">
-            <div className="flex size-full items-center justify-center">
-              <span className="text-sm font-medium">Logs</span>
-            </div>
+          {/* Taller by default than the placeholder it replaces: the console
+              lists runs and their steps, and 8rem left room for about three
+              rows of them. It can still be dragged down to that. */}
+          <ResizablePanel defaultSize="14rem" minSize="6rem">
+            <ConsolePanel />
           </ResizablePanel>
         </ResizablePanelGroup>
       </ResizablePanel>
