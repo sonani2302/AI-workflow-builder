@@ -1,6 +1,7 @@
 import { act } from "@/features/workflows/nodes/act"
 import { extract } from "@/features/workflows/nodes/extract"
 import type { NodeExecutor } from "@/features/workflows/nodes/node-contract"
+import { observe } from "@/features/workflows/nodes/observe"
 import type {
   ActionNodeType,
   NodeType,
@@ -18,6 +19,7 @@ export const nodeExecutors = {
   "open-url": openUrl,
   act,
   extract,
+  observe,
 } satisfies Record<ActionNodeType, NodeExecutor>
 
 /**

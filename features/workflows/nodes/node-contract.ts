@@ -45,3 +45,32 @@ export class NodeInputError extends Error {
     this.name = "NodeInputError"
   }
 }
+
+/**
+ * The page a step is to work on, or a refusal to start.
+ *
+ * Every node but the one that navigates needs a page already open, and none of
+ * them opens one of its own: a step with nothing above it that navigated is a
+ * graph drawn wrong, and the blank tab it would take to satisfy the call turns
+ * that into a vaguer failure a moment later — "could not find the button"
+ * rather than "there was no page". NodeInputError rather than a plain one,
+ * because the retry finds the same empty browser.
+ *
+ * Lives here rather than in one of the executors because it is a rule about
+ * what a step is handed, which is what the rest of this module is about, and
+ * because the alternative is every page-reading node keeping its own copy.
+ *
+ * The active page rather than the first: a click can open a tab, and what the
+ * steps below arrive on is wherever the run has got to, not where it began.
+ */
+export function requirePage({ stagehand }: NodeRunContext, node: string) {
+  const page = stagehand.context.activePage()
+
+  if (!page) {
+    throw new NodeInputError(
+      `${node} has no page to work on. Put an Open URL above it.`
+    )
+  }
+
+  return page
+}

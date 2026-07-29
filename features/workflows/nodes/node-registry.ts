@@ -3,6 +3,7 @@ import {
   Globe,
   MousePointerClick,
   Pointer,
+  ScanEye,
   ScanText,
   type LucideIcon,
 } from "lucide-react"
@@ -111,6 +112,29 @@ export const nodeRegistry = {
     // one back. Anything finer-grained would have to be describable from the
     // canvas first.
     outputs: [{ path: "extraction", label: "Extraction" }],
+  },
+  observe: {
+    type: "observe",
+    kind: "action",
+    label: "Observe",
+    icon: ScanEye,
+    accent: "bg-sky-500 text-white",
+    fields: [
+      {
+        key: "instruction",
+        label: "Instruction",
+        placeholder: "The buttons that add an item to the cart",
+        multiline: true,
+      },
+    ],
+    // The whole list, and a count to branch on. A chip drops the list in as
+    // JSON, which is the only honest reading of it — a step wanting one match
+    // can say so by hand, since a placeholder walks paths: "{{ <id>.matches[0]
+    // .selector }}".
+    outputs: [
+      { path: "matches", label: "Matches" },
+      { path: "count", label: "Match count" },
+    ],
   },
 } satisfies Record<string, NodeDefinition>
 

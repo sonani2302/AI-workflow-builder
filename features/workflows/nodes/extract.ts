@@ -1,5 +1,6 @@
 import {
   NodeInputError,
+  requirePage,
   type NodeRunContext,
 } from "@/features/workflows/nodes/node-contract"
 
@@ -23,7 +24,7 @@ export type ExtractResult = {
  * wanted. A node that takes a schema is a different node, and can be one later.
  */
 export async function extract(
-  { stagehand }: NodeRunContext,
+  context: NodeRunContext,
   values: Record<string, string>
 ): Promise<ExtractResult> {
   const instruction = values.instruction?.trim() ?? ""
@@ -32,19 +33,10 @@ export async function extract(
     throw new NodeInputError("Extract needs to be told what to read.")
   }
 
-  // Reading needs something to read. As with act, nothing here opens a page of
-  // its own: an Extract with nothing above it that navigated is a graph drawn
-  // wrong, and NodeInputError rather than a plain one because the retry finds
-  // the same empty browser.
-  const { context } = stagehand
+  // Reading needs something to read.
+  requirePage(context, "Extract")
 
-  if (!context.activePage()) {
-    throw new NodeInputError(
-      "Extract has no page to read. Put an Open URL above it."
-    )
-  }
-
-  const result = await stagehand.extract(instruction)
+  const result = await context.stagehand.extract(instruction)
 
   // A page that does not say what was asked for comes back as an empty reading
   // rather than as a failure, and that is left alone: "no price on this page" is

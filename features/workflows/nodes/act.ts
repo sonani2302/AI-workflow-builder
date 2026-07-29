@@ -1,5 +1,6 @@
 import {
   NodeInputError,
+  requirePage,
   type NodeRunContext,
 } from "@/features/workflows/nodes/node-contract"
 
@@ -25,7 +26,7 @@ export type ActResult = {
  * driving a page this way, and the reason the field is multi-line.
  */
 export async function act(
-  { stagehand }: NodeRunContext,
+  context: NodeRunContext,
   values: Record<string, string>
 ): Promise<ActResult> {
   const instruction = values.instruction?.trim() ?? ""
@@ -34,27 +35,17 @@ export async function act(
     throw new NodeInputError("Act needs an instruction to carry out.")
   }
 
-  // Acting means acting on something. Nothing here opens a page of its own: an
-  // Act with nothing above it that navigated is a graph drawn wrong, and the
-  // blank tab it would take to satisfy the call only turns that into a vaguer
-  // failure a moment later — "could not find the button" rather than "there was
-  // no page". NodeInputError because a second attempt finds the same empty
-  // browser, the same way a mistyped URL is still mistyped on the retry.
-  const { context } = stagehand
+  // Acting means acting on something, and nothing here opens a page of its own.
+  requirePage(context, "Act")
 
-  if (!context.activePage()) {
-    throw new NodeInputError(
-      "Act has no page to work on. Put an Open URL above it."
-    )
-  }
-
+  const { stagehand } = context
   const result = await stagehand.act(instruction)
 
   // Read afterwards, and off whichever page is active by then rather than the
   // one checked above: an action can navigate, and an action can open a tab.
   // Either way this is the page the steps below will arrive on, so it is the
   // one worth reporting.
-  const page = context.activePage()
+  const page = stagehand.context.activePage()
 
   // An instruction Stagehand could not carry out comes back as an ordinary
   // result with success false, and is reported rather than thrown on — the same
