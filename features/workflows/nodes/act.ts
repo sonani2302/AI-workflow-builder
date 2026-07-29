@@ -35,10 +35,11 @@ export async function act(
     throw new NodeInputError("Act needs an instruction to carry out.")
   }
 
-  // Acting means acting on something, and nothing here opens a page of its own.
-  requirePage(context, "Act")
+  const stagehand = await context.browser()
 
-  const { stagehand } = context
+  // Acting means acting on something, and nothing here opens a page of its own.
+  requirePage(stagehand, "Act")
+
   const result = await stagehand.act(instruction)
 
   // Read afterwards, and off whichever page is active by then rather than the

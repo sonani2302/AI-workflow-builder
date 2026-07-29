@@ -33,10 +33,12 @@ export async function extract(
     throw new NodeInputError("Extract needs to be told what to read.")
   }
 
-  // Reading needs something to read.
-  requirePage(context, "Extract")
+  const stagehand = await context.browser()
 
-  const result = await context.stagehand.extract(instruction)
+  // Reading needs something to read.
+  requirePage(stagehand, "Extract")
+
+  const result = await stagehand.extract(instruction)
 
   // A page that does not say what was asked for comes back as an empty reading
   // rather than as a failure, and that is left alone: "no price on this page" is

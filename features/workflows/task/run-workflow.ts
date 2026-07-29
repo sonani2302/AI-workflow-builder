@@ -40,7 +40,7 @@ export type RunProgress = {
 export const runWorkflowTask = task({
   id: "run-workflow",
   maxDuration: 300,
-  run: async ({ workflowId, graph }: RunWorkflowPayload) => {
+  run: async ({ workflowId, graph }: RunWorkflowPayload, { ctx }) => {
     // Checked again here rather than trusting the editor and the action that
     // queued this. The run outlives the click that started it, the payload is
     // whatever the browser sent, and a retry replays that same payload.
@@ -214,8 +214,12 @@ export const runWorkflowTask = task({
         await metadata.flush()
 
         try {
+          // browser is passed rather than called, so a step that needs no page
+          // opens no session — see the note on it above. The run id rather than
+          // the attempt's: a step that must not happen twice needs a name that
+          // survives a retry, and ctx.run.id is the same on every attempt.
           const output = await executor(
-            { stagehand: await browser() },
+            { browser, runId: ctx.run.id, nodeId },
             resolved
           )
 

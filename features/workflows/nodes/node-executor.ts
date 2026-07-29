@@ -8,6 +8,7 @@ import type {
   NodeType,
 } from "@/features/workflows/nodes/node-registry"
 import { openUrl } from "@/features/workflows/nodes/open-url"
+import { sendEmail } from "@/features/workflows/nodes/send-email"
 
 /**
  * Node type to the function that runs it.
@@ -22,6 +23,7 @@ export const nodeExecutors = {
   extract,
   observe,
   agent,
+  "send-email": sendEmail,
 } satisfies Record<ActionNodeType, NodeExecutor>
 
 /**

@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react"
 import {
   Bot,
   Globe,
+  Mail,
   MousePointerClick,
   Pointer,
   ScanEye,
@@ -43,6 +44,11 @@ export type NodeDefinition = {
   accent: string // Tailwind classes for the icon chip color
   fields: NodeField[]
   outputs: NodeOutput[]
+  // Whether an organization has to be on the pro plan to add this node. Said
+  // here rather than by the toolbar naming the types it locks, so making a
+  // second node premium is a line in its own entry — the same reason kind and
+  // fields live here. Absent means free, which is what almost every node is.
+  premium?: boolean
 }
 
 export const nodeRegistry = {
@@ -143,6 +149,11 @@ export const nodeRegistry = {
     label: "Agent",
     icon: Bot,
     accent: "bg-rose-500 text-white",
+    // The one paid node. It is handed a goal rather than a move, so it decides
+    // its own steps and keeps a browser and a model busy for as long as that
+    // takes — where every other action is one bounded call. That is what is
+    // being charged for.
+    premium: true,
     // Multi-line, and for a stronger reason than the others: this field holds a
     // goal rather than a single move, so it runs to several lines and often
     // wants a condition on the end — what to do, and what done looks like.
@@ -164,6 +175,42 @@ export const nodeRegistry = {
       { path: "message", label: "Message" },
       { path: "completed", label: "Completed" },
     ],
+  },
+  "send-email": {
+    type: "send-email",
+    kind: "action",
+    label: "Send Email",
+    icon: Mail,
+    accent: "bg-indigo-500 text-white",
+    // The first action here that is not about a page at all, which is why it
+    // reads as three plain fields rather than an instruction: there is no model
+    // to interpret them, so what is typed is what gets sent.
+    //
+    // No "from" field. Resend will only send from a domain the account has
+    // verified, so the address is not a free choice and belongs in the executor
+    // rather than on the canvas, where it would look like one.
+    fields: [
+      { key: "to", label: "To", placeholder: "someone@example.com" },
+      {
+        key: "subject",
+        label: "Subject",
+        placeholder: "Your workflow finished",
+      },
+      {
+        key: "body",
+        label: "Body",
+        placeholder: "What the email should say",
+        // Multi-line for the plainest reason of any field here: it is the body
+        // of an email, and the line breaks typed into it are kept — it goes out
+        // as text rather than as markup.
+        multiline: true,
+      },
+    ],
+    // Just the id. What a send has to say for itself is that it happened and
+    // what it can be looked up by afterwards — the recipient and the subject
+    // come back too, but a later step wanting either already has them on the
+    // node it typed them into.
+    outputs: [{ path: "id", label: "Email ID" }],
   },
 } satisfies Record<string, NodeDefinition>
 

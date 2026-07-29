@@ -82,11 +82,15 @@ function parseUrl(input: string) {
  * and image would spend the run's budget on nothing the next step reads.
  */
 export async function openUrl(
-  { stagehand }: NodeRunContext,
+  { browser }: NodeRunContext,
   values: Record<string, string>
 ): Promise<OpenUrlResult> {
+  // Read before the browser is asked for, which is what lets the note in
+  // parseUrl about not paying for a session mean what it says: a mistyped field
+  // is turned away here, and nothing has been opened yet to turn away from.
   const url = parseUrl(values.url ?? "")
-  const { context } = stagehand
+
+  const { context } = await browser()
   const page = context.pages()[0] ?? (await context.newPage())
 
   const response = await page.goto(url, { waitUntil: "domcontentloaded" })

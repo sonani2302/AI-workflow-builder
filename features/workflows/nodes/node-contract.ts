@@ -6,12 +6,32 @@ import type { Stagehand } from "@browserbasehq/stagehand"
 // this module is imported by both and imports neither.
 
 /**
- * The browser belongs to the run rather than to any one step: a workflow is a
- * sequence of steps against a single session, so whatever a step navigates to
- * or clicks is what the next step arrives on.
+ * What a step is handed: the run it belongs to, and a way to get at the browser.
  */
 export type NodeRunContext = {
-  stagehand: Stagehand
+  /**
+   * The browser belongs to the run rather than to any one step: a workflow is a
+   * sequence of steps against a single session, so whatever a step navigates to
+   * or clicks is what the next step arrives on. The first call opens it and
+   * every call after gets the same one back.
+   *
+   * A function rather than the session itself, because not every node wants one.
+   * A step that sends an email touches no page, and asking for the session up
+   * front would open a browser on its behalf and bill for the time it sat there
+   * unused — a graph made only of such steps should never reach Browserbase at
+   * all. Handed over as the means to open it, the cost falls to whoever asks.
+   */
+  browser: () => Promise<Stagehand>
+
+  /**
+   * Which run this is, and which node in it.
+   *
+   * Both are stable across attempts — a retry replays the same run id over the
+   * same graph — which is what makes the pair usable as the name of a side
+   * effect that must happen at most once, however many attempts it takes.
+   */
+  runId: string
+  nodeId: string
 }
 
 export type JsonValue =
@@ -62,8 +82,13 @@ export class NodeInputError extends Error {
  *
  * The active page rather than the first: a click can open a tab, and what the
  * steps below arrive on is wherever the run has got to, not where it began.
+ *
+ * Takes the session rather than the context, so a caller has to have opened one
+ * before it can ask this. The alternative — handing it the context and letting
+ * it open the browser itself — would mean a check that costs a session to
+ * perform, and would open one only to report that there was no page on it.
  */
-export function requirePage({ stagehand }: NodeRunContext, node: string) {
+export function requirePage(stagehand: Stagehand, node: string) {
   const page = stagehand.context.activePage()
 
   if (!page) {

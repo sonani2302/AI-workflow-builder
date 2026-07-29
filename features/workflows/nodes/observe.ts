@@ -40,10 +40,12 @@ export async function observe(
     throw new NodeInputError("Observe needs to be told what to look for.")
   }
 
-  // Looking needs something to look at.
-  requirePage(context, "Observe")
+  const stagehand = await context.browser()
 
-  const found = await context.stagehand.observe(instruction)
+  // Looking needs something to look at.
+  requirePage(stagehand, "Observe")
+
+  const found = await stagehand.observe(instruction)
 
   // Narrowed to the selector and the description on the way out. Stagehand also
   // offers the method it would call and the arguments it would pass, which

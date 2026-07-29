@@ -54,11 +54,12 @@ export async function agent(
     throw new NodeInputError("Agent needs an instruction to work towards.")
   }
 
+  const stagehand = await context.browser()
+
   // The agent looks at the page to decide its first move, so there has to be
   // one. Nothing here opens a page of its own.
-  requirePage(context, "Agent")
+  requirePage(stagehand, "Agent")
 
-  const { stagehand } = context
   const result = await stagehand
     .agent()
     .execute({ instruction, maxSteps: MAX_STEPS })
