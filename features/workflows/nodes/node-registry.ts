@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react"
 import {
+  Bot,
   Globe,
   MousePointerClick,
   Pointer,
@@ -134,6 +135,34 @@ export const nodeRegistry = {
     outputs: [
       { path: "matches", label: "Matches" },
       { path: "count", label: "Match count" },
+    ],
+  },
+  agent: {
+    type: "agent",
+    kind: "action",
+    label: "Agent",
+    icon: Bot,
+    accent: "bg-rose-500 text-white",
+    // Multi-line, and for a stronger reason than the others: this field holds a
+    // goal rather than a single move, so it runs to several lines and often
+    // wants a condition on the end — what to do, and what done looks like.
+    fields: [
+      {
+        key: "instruction",
+        label: "Instruction",
+        placeholder:
+          "Find the cheapest flight to Lisbon next month and open its booking page",
+        multiline: true,
+      },
+    ],
+    // No list of the steps it took: it is long, it varies run to run, and there
+    // is nothing in it a later field would want to name. What is worth reading
+    // is whether the goal was met, what it says about that, and whether it got
+    // to its own end rather than being stopped at the step cap.
+    outputs: [
+      { path: "success", label: "Success" },
+      { path: "message", label: "Message" },
+      { path: "completed", label: "Completed" },
     ],
   },
 } satisfies Record<string, NodeDefinition>

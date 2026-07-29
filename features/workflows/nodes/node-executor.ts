@@ -1,4 +1,5 @@
 import { act } from "@/features/workflows/nodes/act"
+import { agent } from "@/features/workflows/nodes/agent"
 import { extract } from "@/features/workflows/nodes/extract"
 import type { NodeExecutor } from "@/features/workflows/nodes/node-contract"
 import { observe } from "@/features/workflows/nodes/observe"
@@ -20,6 +21,7 @@ export const nodeExecutors = {
   act,
   extract,
   observe,
+  agent,
 } satisfies Record<ActionNodeType, NodeExecutor>
 
 /**
