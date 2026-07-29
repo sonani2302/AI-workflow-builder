@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
 import * as Sentry from "@sentry/nextjs"
-import { tasks } from "@trigger.dev/sdk"
+import { runs, tasks } from "@trigger.dev/sdk"
 
 import { getLiveblocks } from "@/lib/liveblocks"
 import { deleteWorkflow, getWorkflow } from "@/features/workflows/data"
@@ -97,6 +97,64 @@ export async function runWorkflowAction(
   // workflow's tag, and everything showing a run reads that single
   // subscription — so the badge and the canvas cannot end up on different runs.
   return { runId: handle.id }
+}
+
+/**
+ * Cancel one in-flight run of a workflow.
+ *
+ * Takes the workflow id as well as the run id, and needs both: the run id comes
+ * from the browser, and a run id alone says nothing about who is allowed to stop
+ * it. Trigger.dev would cancel any run this project's key can reach, so without
+ * the pairing below one organization could stop another's run by its id.
+ *
+ * Cancelling is final — Trigger.dev stops the task, marks the run canceled, and
+ * does not retry it — so this is the one action here that ends something rather
+ * than starting it. There is nothing to revalidate afterwards: the canvas learns
+ * the run stopped through the same tag subscription that showed it running.
+ */
+export async function cancelRunAction(workflowId: string, runId: string) {
+  const { orgId } = await auth()
+
+  if (!orgId) {
+    throw new Error("No active organization")
+  }
+
+  Sentry.getIsolationScope().setAttributes({
+    action: "cancelRunAction",
+    org_id: orgId,
+    workflow_id: workflowId,
+    run_id: runId,
+  })
+
+  // First half of the pairing: the workflow has to be this organization's, the
+  // same check runWorkflowAction makes before spending a run.
+  const workflow = await getWorkflow(orgId, workflowId)
+
+  if (!workflow) {
+    Sentry.logger.warn("Cancel rejected: workflow not in organization")
+
+    throw new Error("Workflow not found")
+  }
+
+  // Second half: the run has to be one of *that* workflow's. The tag is what
+  // says so — it is written when the run is queued and is the same string the
+  // canvas subscribes by — so checking it here is what stops a run id from
+  // another workflow, or another organization, being cancelled through a
+  // workflow the caller does happen to own.
+  const run = await runs.retrieve(runId)
+
+  // tags comes back as a string or a list depending on how many there are.
+  const tags = Array.isArray(run.tags) ? run.tags : [run.tags]
+
+  if (!tags.includes(workflowRunsTag(workflowId))) {
+    Sentry.logger.warn("Cancel rejected: run does not belong to this workflow")
+
+    throw new Error("Run not found")
+  }
+
+  await runs.cancel(runId)
+
+  Sentry.logger.info("Workflow run cancelled")
 }
 
 /**

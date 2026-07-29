@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState, useTransition } from "react"
-import { Lock, MoreHorizontal, Play, Trash2 } from "lucide-react"
+import { Lock, MoreHorizontal, Play, Square, Trash2 } from "lucide-react"
 import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
 import {
@@ -43,11 +43,16 @@ import { Textarea } from "@/components/ui/textarea"
 
 import { cn } from "@/lib/utils"
 import {
+  cancelRunAction,
   deleteWorkflowAction,
   runWorkflowAction,
 } from "@/features/workflows/actions"
 import { NodeIcon } from "@/features/workflows/components/node-icon"
 import { RunStatus } from "@/features/workflows/components/run-status"
+import {
+  isRunLive,
+  useLatestRun,
+} from "@/features/workflows/components/workflow-runs-provider"
 import { useProPlan } from "@/features/workflows/hooks/use-pro-plan"
 import { useUpstreamConnections } from "@/features/workflows/hooks/use-upstream-connections"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
@@ -495,10 +500,65 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
   )
 }
 
-// Kicks off a run of the current workflow.
+// Starts a run of the current workflow, or stops the one that is going.
+//
+// One button rather than two, because the two states are mutually exclusive: at
+// most one run of a workflow is live at a time, so a Run button beside a Stop
+// button would always have one of them doing nothing.
 function RunButton({ workflowId }: { workflowId: string }) {
   const { getNodes, getEdges } = useReactFlow<StepNodeType>()
   const [isPending, startTransition] = useTransition()
+
+  // The run this button just queued, held only until the subscription catches
+  // up with it. Without this the button would flip back to Run for the moment
+  // between the action returning and the first realtime update arriving — long
+  // enough to see, and long enough to click.
+  const [queuedRunId, setQueuedRunId] = useState<string | null>(null)
+
+  const latest = useLatestRun()
+  const liveRun = latest && isRunLive(latest) ? latest : null
+
+  // Adjusted during render rather than in an effect, matching how the sidebar
+  // below follows the selection. Clearing on "the subscription has said
+  // something about this run" rather than on "it is live" is what makes a run
+  // that failed immediately give the button back instead of stranding it on
+  // Stop.
+  if (queuedRunId && latest?.id === queuedRunId) {
+    setQueuedRunId(null)
+  }
+
+  // Stoppable while the subscription reports a live run, and during the gap
+  // described above. The id is what cancelling needs, and either source is a
+  // real run id.
+  const stoppableRunId = liveRun?.id ?? queuedRunId
+
+  const handleStop = () => {
+    if (!stoppableRunId) {
+      return
+    }
+
+    startTransition(async () => {
+      try {
+        await cancelRunAction(workflowId, stoppableRunId)
+      } catch (error) {
+        // The action's throw is already an issue via onRequestError. What this
+        // adds is which of the two id sources was being stopped: a failure that
+        // only happens on a run the subscription has not reported yet is a
+        // different problem from one on a run it has.
+        Sentry.logger.warn("Run failed to cancel from the client", {
+          surface: "run-button",
+          workflow_id: workflowId,
+          run_id: stoppableRunId,
+          subscription_caught_up: Boolean(liveRun),
+          reason: error instanceof Error ? error.message : "unknown",
+        })
+
+        toast.error(
+          error instanceof Error ? error.message : "Could not stop the run"
+        )
+      }
+    })
+  }
 
   const handleRun = () => {
     // The store is the source of truth, not the row: the canvas lives in
@@ -528,9 +588,12 @@ function RunButton({ workflowId }: { workflowId: string }) {
     // The pending flag also guards against a double click queueing two runs.
     startTransition(async () => {
       try {
-        // Nothing to keep from the handle: the run is tagged, and the canvas'
-        // shared subscription picks it up on its own.
-        await runWorkflowAction(workflowId, graph)
+        // The run id is kept now, unlike before: the canvas still picks the run
+        // up through the tag on its own, but the button needs something to offer
+        // Stop on before that first update lands.
+        const { runId } = await runWorkflowAction(workflowId, graph)
+
+        setQueuedRunId(runId)
       } catch (error) {
         // As with delete, the action's own throw is already an issue. The graph
         // size is what this adds: a run that fails to queue only on large
@@ -553,18 +616,30 @@ function RunButton({ workflowId }: { workflowId: string }) {
 
   return (
     <div className="flex flex-col items-end gap-1.5">
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={handleRun}
-        disabled={isPending}
-      >
-        <Play fill="primary" />
-        Run
-      </Button>
+      {stoppableRunId ? (
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={handleStop}
+          disabled={isPending}
+        >
+          <Square fill="currentColor" />
+          {isPending ? "Stopping…" : "Stop"}
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={handleRun}
+          disabled={isPending}
+        >
+          <Play fill="primary" />
+          Run
+        </Button>
+      )}
 
-      {/* Reads the shared subscription, so it needs nothing from the click that
-          started the run and renders nothing until there is one to report. */}
+      {/* Reads the shared subscription, so it needs nothing from either click
+          and renders nothing until there is a run to report. */}
       <RunStatus />
     </div>
   )
