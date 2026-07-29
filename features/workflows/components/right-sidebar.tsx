@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState, useTransition } from "react"
-import { MoreHorizontal, Play, Trash2 } from "lucide-react"
+import { Lock, MoreHorizontal, Play, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   useNodesData,
@@ -40,12 +40,14 @@ import { ResizablePanel } from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
+import { cn } from "@/lib/utils"
 import {
   deleteWorkflowAction,
   runWorkflowAction,
 } from "@/features/workflows/actions"
 import { NodeIcon } from "@/features/workflows/components/node-icon"
 import { RunStatus } from "@/features/workflows/components/run-status"
+import { useProPlan } from "@/features/workflows/hooks/use-pro-plan"
 import { useUpstreamConnections } from "@/features/workflows/hooks/use-upstream-connections"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import {
@@ -294,7 +296,12 @@ const sections: { kind: StepNodeKind; label: string }[] = [
 ]
 
 // Every node type from the registry, filtered into the groups below.
-const definitions = Object.values(nodeRegistry)
+//
+// Annotated rather than left inferred: the registry is declared with `satisfies`
+// to keep each entry's literal type, which means the optional fields only exist
+// on the entries that set them — so an inferred union has no `premium` to read
+// on the nodes that are free. This asks for the manifest shape instead.
+const definitions: NodeDefinition[] = Object.values(nodeRegistry)
 
 // The Toolbar tab: a button per node type that adds it to the canvas.
 function Palette() {
@@ -303,6 +310,12 @@ function Palette() {
   // the palette renders outside the canvas.
   const { addNodes, getNodes, getViewport } = useReactFlow<StepNodeType>()
   const store = useStoreApi()
+
+  // What the premium nodes below are gated on. isLoaded matters as much as
+  // isPro: before Clerk has the session the honest answer is "not yet known",
+  // and treating that as "not pro" would hang a lock on the Agent node for a
+  // moment on every load — including for the organizations paying for it.
+  const { isPro, isLoaded, upgrade } = useProPlan()
 
   const add = (type: NodeType) => {
     const nodes = getNodes()
@@ -352,17 +365,35 @@ function Palette() {
             <AccordionContent className="flex flex-col gap-0.5">
               {definitions
                 .filter((def) => def.kind === section.kind)
-                .map((def) => (
-                  <Button
-                    key={def.type}
-                    variant="ghost"
-                    onClick={() => add(def.type as NodeType)}
-                    className="justify-start gap-2.5 px-1.5 text-xs"
-                  >
-                    <NodeIcon type={def.type as NodeType} />
-                    {def.label}
-                  </Button>
-                ))}
+                .map((def) => {
+                  // Locked only once we know the answer is no. Until then a
+                  // premium node is neither addable nor sold as unavailable —
+                  // just briefly inert, which is the truth of it.
+                  const locked = def.premium && isLoaded && !isPro
+                  const undecided = def.premium && !isLoaded
+
+                  return (
+                    <Button
+                      key={def.type}
+                      variant="ghost"
+                      disabled={undecided}
+                      // Not disabled when locked: the click is the whole point
+                      // of the lock, and a disabled button swallows it.
+                      onClick={() =>
+                        locked ? upgrade() : add(def.type as NodeType)
+                      }
+                      title={locked ? "Upgrade to pro to use this node" : ""}
+                      className={cn(
+                        "justify-start gap-2.5 px-1.5 text-xs",
+                        locked && "text-muted-foreground"
+                      )}
+                    >
+                      <NodeIcon type={def.type as NodeType} />
+                      {def.label}
+                      {locked ? <Lock className="ml-auto size-3" /> : null}
+                    </Button>
+                  )
+                })}
             </AccordionContent>
           </AccordionItem>
         ))}
