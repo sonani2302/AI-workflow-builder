@@ -3,6 +3,7 @@ import {
   Globe,
   MousePointerClick,
   Pointer,
+  ScanText,
   type LucideIcon,
 } from "lucide-react"
 
@@ -88,6 +89,28 @@ export const nodeRegistry = {
       { path: "message", label: "Message" },
       { path: "url", label: "URL" },
     ],
+  },
+  extract: {
+    type: "extract",
+    kind: "action",
+    label: "Extract",
+    icon: ScanText,
+    accent: "bg-amber-500 text-white",
+    // Multi-line for the same reason act's is: what is being asked for takes a
+    // sentence to describe, and often a qualifying clause about which part of
+    // the page to take it from.
+    fields: [
+      {
+        key: "instruction",
+        label: "Instruction",
+        placeholder: "The price of the first result",
+        multiline: true,
+      },
+    ],
+    // One reading, because the node asks for no schema and so gets the default
+    // one back. Anything finer-grained would have to be describable from the
+    // canvas first.
+    outputs: [{ path: "extraction", label: "Extraction" }],
   },
 } satisfies Record<string, NodeDefinition>
 
