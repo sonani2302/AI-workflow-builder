@@ -48,6 +48,27 @@ export type RunStep = {
    * finishes, and absent on the trigger, which does no work to time.
    */
   durationMs?: number
+  /**
+   * When the step's own work began, as epoch milliseconds. Paired with
+   * durationMs it gives the step's window on the clock, which is what lets a
+   * replay be cut down to the part of the session this step drove — a duration
+   * alone says how long but not when.
+   *
+   * Absent on the trigger and on any step the run never reached, for the same
+   * reason durationMs is: neither ever started.
+   */
+  startedAt?: number
+  /**
+   * Whether this step actually asked for the browser.
+   *
+   * Recorded rather than inferred from the node type, because whether a step
+   * opens a page is the executor's decision at run time and the registry does
+   * not declare it. It is what makes a per-step replay honest: a step that
+   * touched no page still has a window on the clock, and cutting the recording
+   * to it would show the previous step's page sitting there as if this one had
+   * done it.
+   */
+  usedBrowser?: boolean
   /** What the executor returned, on a step that got that far. */
   output?: JsonObject
   /** Why it stopped, on a step that threw. */
@@ -145,6 +166,15 @@ export const runWorkflowTask = task({
     // is a real outcome rather than a failure to record one.
     let sessionId: string | null = null
 
+    // When that session opened, as epoch milliseconds — the closest handle this
+    // run has on where the recording starts, since Browserbase begins recording
+    // with the session. Every step's window is read against this to find its
+    // place in the video, so the two have to be measured on the same clock,
+    // which is why this is stamped here rather than derived from the run's own
+    // start: a run is queued, validated, and may walk several browserless steps
+    // before anything is recorded at all.
+    let sessionStartedAt: number | null = null
+
     async function browser() {
       if (stagehand) {
         return stagehand
@@ -177,9 +207,42 @@ export const runWorkflowTask = task({
           logger.debug(`[stagehand] ${message}`, { level, category }),
       })
 
-      await opened.init()
+      // init() is the call that asks Browserbase for a session, so it is where
+      // an account that cannot have one finds out. 402 is that answer: out of
+      // credit, or past the plan's limit on sessions or minutes.
+      //
+      // Aborted rather than thrown on, for the same reason as the missing
+      // credentials above — no amount of retrying buys more credit, and the
+      // default three attempts only turn one refusal into three. The message is
+      // rewritten because Stagehand's own is "Unknown error: 402", which says
+      // nothing about what happened or who can fix it, and that string is what
+      // the run's console shows.
+      //
+      // Matched on the message because that is the only place the status
+      // survives: StagehandHttpError carries a string and nothing else, so
+      // there is no code to read. A wording change upstream would fall through
+      // to the throw below and retry as it does today, which is the safe way
+      // for this to break.
+      try {
+        await opened.init()
+      } catch (error) {
+        if (error instanceof Error && /\b402\b/.test(error.message)) {
+          throw new AbortTaskRunError(
+            "Browserbase refused the browser session (402): the account is out of credit or over its plan limit. Top it up at browserbase.com and run this again."
+          )
+        }
+
+        throw error
+      }
+
       stagehand = opened
       sessionId = opened.browserbaseSessionID ?? null
+
+      // After init rather than before it. init is what actually creates the
+      // session on Browserbase — the constructor above only configures one — so
+      // a stamp taken before it would include however long that took and push
+      // every step's window later in the video than it really is.
+      sessionStartedAt = Date.now()
 
       // The session's replay on browserbase.com, so a run that went wrong can
       // be watched back rather than guessed at from the step reports alone.
@@ -258,13 +321,29 @@ export const runWorkflowTask = task({
         // hiding it would leave a step reported as fast that took ten seconds.
         const startedAt = Date.now()
 
+        steps[index].startedAt = startedAt
+
         try {
           // browser is passed rather than called, so a step that needs no page
           // opens no session — see the note on it above. The run id rather than
           // the attempt's: a step that must not happen twice needs a name that
           // survives a retry, and ctx.run.id is the same on every attempt.
+          //
+          // Wrapped per step rather than passed straight through, so asking for
+          // the browser is what marks the step as having used one. The flag is
+          // set on the way in rather than after the await: a step that opens a
+          // page and then throws did drive the session, and its slice of the
+          // recording is exactly the part worth watching back.
           const output = await executor(
-            { browser, runId: ctx.run.id, nodeId },
+            {
+              browser: () => {
+                steps[index].usedBrowser = true
+
+                return browser()
+              },
+              runId: ctx.run.id,
+              nodeId,
+            },
             resolved
           )
 
@@ -326,10 +405,16 @@ export const runWorkflowTask = task({
       // when there is something to play, whereas one published mid-run would
       // reach a panel while the recording was still being written and have it
       // ask for a replay that does not exist yet.
+      //
+      // sessionStartedAt rides along for the same reason and is only useful
+      // beside it: on its own it is a timestamp with nothing to measure, and
+      // paired with each step's startedAt it is what turns "this step ran for
+      // 25 seconds" into "these 25 seconds of the recording".
       return {
         workflowId,
         steps,
         sessionId,
+        sessionStartedAt,
         message: `Ran ${ran} step${ran === 1 ? "" : "s"}`,
       }
     } finally {

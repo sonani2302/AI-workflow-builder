@@ -8,6 +8,8 @@ import {
   ClientSideSuspense,
 } from "@liveblocks/react/suspense"
 
+import { WorkflowLoading } from "@/features/workflows/components/workflow-loading"
+
 export function Room({
   roomId,
   children,
@@ -54,7 +56,15 @@ export function Room({
       throttle={16}
     >
       <RoomProvider id={roomId}>
-        <ClientSideSuspense fallback={<div>Loading…</div>}>
+        {/* The second wait, and the one this side is responsible for: the page
+            has arrived, and the browser is now authenticating against the room
+            and pulling down its storage. The canvas *is* that storage — the
+            nodes and edges live in it — so there is nothing to draw until it
+            resolves. Same component as the route's own loading file, so the
+            spinner does not jump between the two. */}
+        <ClientSideSuspense
+          fallback={<WorkflowLoading label="Connecting to the canvas…" />}
+        >
           {children}
         </ClientSideSuspense>
       </RoomProvider>

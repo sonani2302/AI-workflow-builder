@@ -2,7 +2,7 @@
 
 import { useTransition } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { unstable_rethrow, usePathname } from "next/navigation"
 import { Lock, Plus, Workflow as WorkflowIcon } from "lucide-react"
 import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
@@ -59,6 +59,12 @@ export function WorkflowNav({
       try {
         await createWorkflowAction(generateSlug())
       } catch (error) {
+        // The redirect to the new workflow arrives here as a thrown
+        // NEXT_REDIRECT, so it goes back to the framework before the pro-plan
+        // handling below reads it as a refused create. First line, so nothing
+        // after it ever sees a navigation.
+        unstable_rethrow(error)
+
         // Reachable even from a button that is not locked: the action reads the
         // plan off the session token, so an organization that subscribed
         // seconds ago can be pro here and not yet pro there. A message beats

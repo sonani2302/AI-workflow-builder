@@ -51,9 +51,22 @@ function wait(ms: number) {
  */
 export function SessionReplay({
   sessionId,
+  clip,
   className,
 }: {
   sessionId: string
+  /**
+   * The part of the session to play, as milliseconds from the start of the
+   * recording, or nothing to play all of it.
+   *
+   * A window over the same recording rather than a different source: Browserbase
+   * records a session, not a step, so one step's replay is the run's replay
+   * started and stopped in the right places. That also means the surrounding
+   * footage stays reachable — the scrubber is the whole session, and the clip is
+   * where it opens — which is what someone chasing why a step went wrong
+   * usually wants next.
+   */
+  clip?: { startMs: number; endMs: number }
   className?: string
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -267,6 +280,69 @@ export function SessionReplay({
       hls?.destroy()
     }
   }, [sessionId])
+
+  // Pulled out of the object so this can be a dependency at all. A caller builds
+  // the clip inline, which is a new object every render, and an effect watching
+  // it would tear itself down and rebuild on every one of them.
+  const clipStartMs = clip?.startMs
+  const clipEndMs = clip?.endMs
+
+  // Kept apart from the loading effect above rather than folded into it, because
+  // the two answer to different things: that one reloads when the session
+  // changes, and this one has to re-aim when the step does. Selecting the next
+  // step of the same run should move the playhead, not throw away a player that
+  // is already holding the right recording.
+  useEffect(() => {
+    const video = videoRef.current
+
+    // Waits for "playing" because that is this component's word for metadata
+    // having been decoded, and seeking a video with no known duration does
+    // nothing. The status is what the effect is really waiting on, which is why
+    // it is a dependency rather than something the loading effect calls into.
+    if (
+      !video ||
+      status.kind !== "playing" ||
+      clipStartMs === undefined ||
+      clipEndMs === undefined
+    ) {
+      return
+    }
+
+    const start = clipStartMs / 1000
+    const end = clipEndMs / 1000
+
+    video.currentTime = start
+
+    // Half a frame at 60fps. timeupdate fires every few hundred milliseconds
+    // rather than continuously, so the stop lands a little past the mark and the
+    // restart below has to recognise a playhead that is fractionally beyond the
+    // end as being at it.
+    const epsilon = 0.008
+
+    const stopAtEnd = () => {
+      if (video.currentTime >= end) {
+        video.pause()
+      }
+    }
+
+    // Pressing play on a clip that has run to its end plays the clip again,
+    // rather than spilling into the next step's footage — which is what would
+    // happen otherwise, since the playhead is already past the stop and the
+    // listener above would not fire again until it had moved on.
+    const restartIfEnded = () => {
+      if (video.currentTime >= end - epsilon) {
+        video.currentTime = start
+      }
+    }
+
+    video.addEventListener("timeupdate", stopAtEnd)
+    video.addEventListener("play", restartIfEnded)
+
+    return () => {
+      video.removeEventListener("timeupdate", stopAtEnd)
+      video.removeEventListener("play", restartIfEnded)
+    }
+  }, [status.kind, clipStartMs, clipEndMs])
 
   return (
     <div

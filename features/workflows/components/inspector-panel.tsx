@@ -11,6 +11,7 @@ import type {
 } from "@/features/workflows/components/logs-panel"
 import { SessionReplay } from "@/features/workflows/components/session-replay"
 import {
+  stepClip,
   useRunHistory,
   type HistoricalRunStep,
 } from "@/features/workflows/components/workflow-runs-provider"
@@ -88,6 +89,12 @@ function StepDetail({ selected }: { selected: SelectedStep }) {
   // "running" that no longer is.
   const isRunning = step?.status === "running" && Boolean(entry?.isLive)
 
+  // The part of the run's recording this step drove, on the steps that have one
+  // — see stepClip for which those are. Null covers rather more than "no video",
+  // so nothing is said in its place: a step that opened no page has no missing
+  // replay to apologise for, and the pane is already showing what it did do.
+  const clip = entry && step ? stepClip(entry, step) : null
+
   return (
     <DetailShell
       header={
@@ -109,6 +116,22 @@ function StepDetail({ selected }: { selected: SelectedStep }) {
         )
       }
     >
+      {/* Above the output rather than below it, because it is the part of this
+          pane someone came looking for on a step that went wrong: the JSON says
+          what the step reported, and the video says what the page was doing
+          while it did. Keyed by the step as well as the session so moving
+          between steps of one run starts a player aimed at the new clip — the
+          component would re-aim an existing one, but the recording is fetched
+          per mount and a fresh one is the simpler thing to reason about. */}
+      {clip && entry?.sessionId ? (
+        <SessionReplay
+          key={`${entry.sessionId}:${selected.nodeId}`}
+          sessionId={entry.sessionId}
+          clip={clip}
+          className="mb-3"
+        />
+      ) : null}
+
       {!step ? (
         // The selected step is gone from the history — a graph re-run without
         // that node, or a run that has aged out of the subscription.

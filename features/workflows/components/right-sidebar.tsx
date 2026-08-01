@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState, useTransition } from "react"
+import { unstable_rethrow } from "next/navigation"
 import { Lock, MoreHorizontal, Play, Square, Trash2 } from "lucide-react"
 import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
@@ -48,10 +49,10 @@ import {
   runWorkflowAction,
 } from "@/features/workflows/actions"
 import { NodeIcon } from "@/features/workflows/components/node-icon"
-import { RunStatus } from "@/features/workflows/components/run-status"
 import {
   isRunLive,
   useLatestRun,
+  useWorkflowRuns,
 } from "@/features/workflows/components/workflow-runs-provider"
 import { useProPlan } from "@/features/workflows/hooks/use-pro-plan"
 import { useUpstreamConnections } from "@/features/workflows/hooks/use-upstream-connections"
@@ -424,6 +425,15 @@ function ActionsMenu({ workflowId }: { workflowId: string }) {
         // leaves with the page rather than needing to be closed.
         await deleteWorkflowAction(workflowId)
       } catch (error) {
+        // The success path arrives here too. redirect() works by throwing
+        // NEXT_REDIRECT, and awaiting a server action that redirects rejects
+        // with it — so a catch this broad sees the navigation as a failure and
+        // reports "NEXT_REDIRECT" as the error. This hands the framework's own
+        // exceptions back to it before any of the handling below runs, which is
+        // what lets the redirect land. It has to be the first line: everything
+        // after it is for real errors only.
+        unstable_rethrow(error)
+
         setConfirmOpen(false)
 
         // The server already has this one: the action's throw went through
@@ -513,22 +523,15 @@ function RunButton({ workflowId }: { workflowId: string }) {
   // up with it. Without this the button would flip back to Run for the moment
   // between the action returning and the first realtime update arriving — long
   // enough to see, and long enough to click.
-  const [queuedRunId, setQueuedRunId] = useState<string | null>(null)
+  // Shared with the console, which shows a row for the same run over the same
+  // gap — see the provider, which also does the clearing this used to.
+  const { queuedRunId, setQueuedRunId } = useWorkflowRuns()
 
   const latest = useLatestRun()
   const liveRun = latest && isRunLive(latest) ? latest : null
 
-  // Adjusted during render rather than in an effect, matching how the sidebar
-  // below follows the selection. Clearing on "the subscription has said
-  // something about this run" rather than on "it is live" is what makes a run
-  // that failed immediately give the button back instead of stranding it on
-  // Stop.
-  if (queuedRunId && latest?.id === queuedRunId) {
-    setQueuedRunId(null)
-  }
-
   // Stoppable while the subscription reports a live run, and during the gap
-  // described above. The id is what cancelling needs, and either source is a
+  // before it does. The id is what cancelling needs, and either source is a
   // real run id.
   const stoppableRunId = liveRun?.id ?? queuedRunId
 
@@ -614,34 +617,30 @@ function RunButton({ workflowId }: { workflowId: string }) {
     })
   }
 
-  return (
-    <div className="flex flex-col items-end gap-1.5">
-      {stoppableRunId ? (
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={handleStop}
-          disabled={isPending}
-        >
-          <Square fill="currentColor" />
-          {isPending ? "Stopping…" : "Stop"}
-        </Button>
-      ) : (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleRun}
-          disabled={isPending}
-        >
-          <Play fill="primary" />
-          Run
-        </Button>
-      )}
-
-      {/* Reads the shared subscription, so it needs nothing from either click
-          and renders nothing until there is a run to report. */}
-      <RunStatus />
-    </div>
+  // The button alone. How the run is going is the console's job — it lists
+  // every run with its status, its steps, and its recording — and saying it
+  // again up here only had room for a shorter, vaguer version of the same
+  // thing.
+  return stoppableRunId ? (
+    <Button
+      size="sm"
+      variant="destructive"
+      onClick={handleStop}
+      disabled={isPending}
+    >
+      <Square fill="currentColor" />
+      {isPending ? "Stopping…" : "Stop"}
+    </Button>
+  ) : (
+    <Button
+      size="sm"
+      variant="secondary"
+      onClick={handleRun}
+      disabled={isPending}
+    >
+      <Play fill="primary" />
+      Run
+    </Button>
   )
 }
 
@@ -692,9 +691,9 @@ export function RightSidebar({ workflowId }: { workflowId: string }) {
       groupResizeBehavior="preserve-pixel-size"
     >
       <Tabs value={tab} onValueChange={setTab} className="size-full gap-0">
-        {/* items-start, not items-center: the run status grows under the Run
-            button and would otherwise drag the "..." menu down with it. */}
-        <div className="flex items-start justify-between border-b border-border p-2">
+        {/* Two buttons on one line. items-center now that nothing grows under
+            either of them — the run's progress is read in the console. */}
+        <div className="flex items-center justify-between gap-1 border-b border-border p-2">
           <ActionsMenu workflowId={workflowId} />
           <RunButton workflowId={workflowId} />
         </div>

@@ -1,9 +1,9 @@
-import { Spinner } from "@/components/ui/spinner"
+import { WorkflowLoading } from "@/features/workflows/components/workflow-loading"
 
+// The first of the two waits: the page's own server work — checking the
+// organization, reading the workflow, making sure its room exists, and minting
+// a token to read its runs. Nothing can be sent to the browser until all of
+// that has come back.
 export default function Loading() {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center p-6">
-      <Spinner className="size-6 text-muted-foreground" />
-    </div>
-  )
+  return <WorkflowLoading label="Opening this workflow…" />
 }

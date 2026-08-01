@@ -8,7 +8,9 @@ import { runs, tasks } from "@trigger.dev/sdk"
 
 import { getLiveblocks } from "@/lib/liveblocks"
 import { deleteWorkflow, getWorkflow } from "@/features/workflows/data"
+import { DELETED_PARAM } from "@/features/workflows/lib/deleted-param"
 import { workflowRunsTag } from "@/features/workflows/lib/run-tag"
+import { createRunsToken } from "@/features/workflows/lib/runs-token"
 import { validateGraph } from "@/features/workflows/lib/validate-graph"
 import type { WorkflowGraph } from "@/features/workflows/nodes/node-registry"
 
@@ -97,6 +99,43 @@ export async function runWorkflowAction(
   // workflow's tag, and everything showing a run reads that single
   // subscription — so the badge and the canvas cannot end up on different runs.
   return { runId: handle.id }
+}
+
+/**
+ * A fresh token for reading this workflow's runs.
+ *
+ * The canvas subscribes to its runs with a token that expires, and until this
+ * existed nothing replaced it: the page minted one at render and the browser
+ * kept it. A canvas left open longer than the expiry went quiet — no error, no
+ * reconnect, just a list that stopped growing and nodes that stopped colouring,
+ * while the runs themselves went on perfectly well on the server. That is a
+ * failure nobody would read as a failure, which is what makes it worth the
+ * round trip to avoid.
+ *
+ * Rechecks the organization rather than trusting that the caller was given a
+ * token once. Membership can be revoked while a tab sits open, and this is the
+ * moment that becomes visible — a refusal here ends the subscription at its
+ * next renewal instead of letting the first token's hour run on.
+ */
+export async function refreshRunsTokenAction(workflowId: string) {
+  const { orgId } = await auth()
+
+  if (!orgId) {
+    throw new Error("No active organization")
+  }
+
+  const workflow = await getWorkflow(orgId, workflowId)
+
+  if (!workflow) {
+    Sentry.logger.warn("Runs token refused: workflow not in organization", {
+      workflow_id: workflowId,
+      org_id: orgId,
+    })
+
+    throw new Error("Workflow not found")
+  }
+
+  return createRunsToken(workflowId)
 }
 
 /**
@@ -227,6 +266,10 @@ export async function deleteWorkflowAction(workflowId: string) {
   // The workflow list lives in the (dashboard) layout, which sits at "/".
   revalidatePath("/", "layout")
 
+  // The flag the dashboard turns into a "Workflow deleted" toast. It travels in
+  // the URL because the page that asked for the delete does not survive the
+  // redirect, so there is nowhere else for the confirmation to be raised.
+  //
   // redirect() throws NEXT_REDIRECT, so it must stay outside any try/catch.
-  redirect("/")
+  redirect(`/?${DELETED_PARAM}=1`)
 }

@@ -33,6 +33,11 @@ const initialNodes: StepNodeType[] = [
 
 const initialEdges: Edge[] = [{ id: "n1-n2", source: "n1", target: "n2" }]
 
+// Which keys remove the selection. A module constant rather than an inline
+// array, because React Flow watches this by identity — a fresh array on every
+// render would tear down and rebind the key listener each time.
+const deleteKeyCodes = ["Backspace", "Delete"]
+
 // Right-angled connectors with rounded corners, plus an arrow head so the
 // direction of the workflow reads at a glance.
 const defaultEdgeOptions: DefaultEdgeOptions = {
@@ -108,6 +113,15 @@ export function Canvas({ workflowId }: { workflowId: string }) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onDelete={onDelete}
+        // React Flow binds Backspace alone, which is the Mac habit; Delete is
+        // the one people reach for on a keyboard that has both, and reaching
+        // for it did nothing. Both, so neither is wrong.
+        //
+        // Safe to bind next to the inspector's text fields: React Flow reads
+        // these through useKeyPress, which ignores key events raised inside an
+        // input, select, textarea, or anything contenteditable. Deleting a
+        // character out of a URL cannot delete the step it belongs to.
+        deleteKeyCode={deleteKeyCodes}
         nodeTypes={nodeTypes}
         defaultEdgeOptions={defaultEdgeOptions}
         colorMode={colorMode}

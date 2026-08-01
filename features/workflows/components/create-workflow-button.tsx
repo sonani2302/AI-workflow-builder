@@ -1,6 +1,7 @@
 "use client"
 
 import { useTransition } from "react"
+import { unstable_rethrow } from "next/navigation"
 import { Plus } from "lucide-react"
 import * as Sentry from "@sentry/nextjs"
 import { toast } from "sonner"
@@ -31,6 +32,12 @@ export function CreateWorkflowButton() {
       try {
         await createWorkflowAction(generateSlug())
       } catch (error) {
+        // The redirect to the new workflow arrives here as a thrown
+        // NEXT_REDIRECT, so it goes back to the framework before anything below
+        // treats it as a failed create. First line, for the same reason as in
+        // the sidebar's copy of this handler.
+        unstable_rethrow(error)
+
         // Already an issue server-side via onRequestError; this only records
         // that the empty state was the surface, which is what tells this button
         // apart from the sidebar's in the logs.

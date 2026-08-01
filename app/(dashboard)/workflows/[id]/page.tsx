@@ -1,8 +1,5 @@
 import { notFound } from "next/navigation"
 import { auth } from "@clerk/nextjs/server"
-// Aliased because Clerk's auth is already the auth on this page, and the two
-// have nothing to do with each other.
-import { auth as triggerAuth } from "@trigger.dev/sdk"
 import { ReactFlowProvider } from "@xyflow/react"
 
 import { getLiveblocks } from "@/lib/liveblocks"
@@ -10,7 +7,7 @@ import { getWorkflow } from "@/features/workflows/data"
 import { Room } from "@/features/workflows/components/room"
 import { WorkflowRunsProvider } from "@/features/workflows/components/workflow-runs-provider"
 import { WorkflowShell } from "@/features/workflows/components/workflow-shell"
-import { workflowRunsTag } from "@/features/workflows/lib/run-tag"
+import { createRunsToken } from "@/features/workflows/lib/runs-token"
 
 // A workflow id is a uuid, so anything else can miss without asking Postgres,
 // which would throw on a malformed value rather than return no rows.
@@ -58,19 +55,9 @@ export default async function WorkflowPage({
   // Minted only once the checks above have passed, so the token is never handed
   // to a browser that was not going to be shown this workflow anyway.
   //
-  // Read on one tag and nothing else: it reaches every run of this workflow,
-  // including ones already going when the page opened, and no run of any other.
-  // An hour outlasts the sitting a canvas gets while staying short enough that a
-  // token read off the page is not worth much later.
-  const runsToken = await triggerAuth.createPublicToken({
-    scopes: { read: { tags: [workflowRunsTag(id)] } },
-    expirationTime: "1h",
-    // The payload of these runs is the entire graph, and it would be sent again
-    // on every update of every run for a canvas that only reads their steps.
-    // The tag subscription takes no skipColumns of its own, so the token is the
-    // one place this can be said.
-    realtime: { skipColumns: ["payload"] },
-  })
+  // The first of several: this one expires, and the provider mints its
+  // replacements from the client for as long as the canvas stays open.
+  const runsToken = await createRunsToken(id)
 
   return (
     <Room roomId={id}>
